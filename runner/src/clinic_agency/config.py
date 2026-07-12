@@ -16,4 +16,5 @@ class Settings(BaseSettings):
     app_env: Literal["development", "test", "staging", "production"] = "development"
     convex_url: str = ""
     internal_api_secret: str = ""
+    telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""

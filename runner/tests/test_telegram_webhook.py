@@ -3,6 +3,15 @@ from fastapi.testclient import TestClient
 from clinic_agency.main import create_app
 
 
+class RecordingWorkflow:
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, int]] = []
+
+    def handle(self, case, chat_id: int):
+        self.calls.append((case, chat_id))
+        return type("Result", (), {"sent": True})()
+
+
 def telegram_update(update_id: int = 101, text: str = "How much is laser treatment?") -> dict:
     return {
         "update_id": update_id,
@@ -58,3 +67,22 @@ def test_telegram_webhook_marks_red_flag_before_agent_planning() -> None:
     case = app.state.case_store.cases[0]
     assert case.must_escalate is True
     assert set(case.red_flags) == {"fever", "hot", "swollen"}
+
+
+def test_telegram_webhook_runs_safe_outbound_workflow_once() -> None:
+    workflow = RecordingWorkflow()
+    app = create_app(
+        telegram_webhook_secret="correct-secret",
+        outbound_workflow=workflow,
+    )
+    client = TestClient(app)
+    headers = {"X-Telegram-Bot-Api-Secret-Token": "correct-secret"}
+
+    first = client.post("/webhooks/telegram", headers=headers, json=telegram_update())
+    replay = client.post("/webhooks/telegram", headers=headers, json=telegram_update())
+
+    assert first.status_code == 202
+    assert first.json()["outbound_sent"] is True
+    assert replay.json()["status"] == "duplicate"
+    assert len(workflow.calls) == 1
+    assert workflow.calls[0][1] == 99
