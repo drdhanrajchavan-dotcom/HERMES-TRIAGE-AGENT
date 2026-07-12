@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Literal
 
 from openai import OpenAI
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ENV = Path(__file__).resolve().parents[3] / ".env"
@@ -52,6 +53,21 @@ class Settings(BaseSettings):
     elevenlabs_output_format: str = "mp3_44100_128"
     elevenlabs_agent_id: str = ""
     voice_max_audio_bytes: int = 25 * 1024 * 1024
+
+    @field_validator("elevenlabs_stt_model_id", mode="before")
+    @classmethod
+    def default_stt_model(cls, value: object) -> object:
+        return value or "scribe_v1"
+
+    @field_validator("elevenlabs_tts_model_id", mode="before")
+    @classmethod
+    def default_tts_model(cls, value: object) -> object:
+        return value or "eleven_multilingual_v2"
+
+    @field_validator("elevenlabs_output_format", mode="before")
+    @classmethod
+    def default_voice_output_format(cls, value: object) -> object:
+        return value or "mp3_44100_128"
 
     @property
     def voice_enabled(self) -> bool:

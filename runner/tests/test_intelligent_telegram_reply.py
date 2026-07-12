@@ -159,7 +159,7 @@ class FakeCalendar:
 
 def test_calendar_registry_exposes_only_server_owned_read_and_hold_handlers() -> None:
     calendar = FakeCalendar()
-    registry = calendar_tool_registry(calendar)
+    registry = calendar_tool_registry(calendar, case_id_provider=lambda: "telegram:11")
     start = "2030-01-01T10:00:00+05:30"
     end = "2030-01-01T10:30:00+05:30"
 
@@ -169,7 +169,7 @@ def test_calendar_registry_exposes_only_server_owned_read_and_hold_handlers() ->
     )
     held = registry.dispatch(
         "calendar.hold",
-        f'{{"hold_key":"case-1-slot-1","case_id":"case-1","start":"{start}","end":"{end}"}}',
+        f'{{"start":"{start}","end":"{end}"}}',
         ("calendar.hold",),
     )
 
@@ -177,7 +177,8 @@ def test_calendar_registry_exposes_only_server_owned_read_and_hold_handlers() ->
     assert available == {"available": True, "busy": []}
     assert held["event_id"] == "event-1"
     assert calendar.reads[0][0] == datetime.fromisoformat(start).astimezone(UTC)
-    assert calendar.holds[0].case_id == "case-1"
+    assert calendar.holds[0].case_id == "telegram:11"
+    assert calendar.holds[0].hold_key.startswith("telegram:11:")
 
 
 def test_reply_output_requires_visible_text() -> None:

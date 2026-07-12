@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
@@ -35,6 +38,13 @@ class CalendarTools(Protocol):
     def create_hold(self, request: HoldRequest) -> Any: ...
 
 
+_ACTIVE_CASE_ID: ContextVar[str] = ContextVar("telegram_calendar_case_id", default="")
+
+
+def active_calendar_case_id() -> str:
+    return _ACTIVE_CASE_ID.get()
+
+
 def _instant(value: object, name: str) -> datetime:
     if not isinstance(value, str):
         raise ValueError(f"{name} must be an ISO-8601 timestamp")
@@ -44,7 +54,11 @@ def _instant(value: object, name: str) -> datetime:
     return parsed
 
 
-def calendar_tool_registry(calendar: CalendarTools) -> ServerToolRegistry:
+def calendar_tool_registry(
+    calendar: CalendarTools,
+    *,
+    case_id_provider: Callable[[], str] = active_calendar_case_id,
+) -> ServerToolRegistry:
     """Build the only calendar functions that a hosted model may invoke."""
 
     def read(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -58,12 +72,19 @@ def calendar_tool_registry(calendar: CalendarTools) -> ServerToolRegistry:
         }
 
     def hold(arguments: dict[str, Any]) -> dict[str, Any]:
+        start = _instant(arguments.get("start"), "start")
+        end = _instant(arguments.get("end"), "end")
+        case_id = case_id_provider()
+        if not case_id.startswith("telegram:"):
+            raise ValueError("calendar hold requires a server-bound Telegram case")
+        slot = f"{start.isoformat()}|{end.isoformat()}"
+        slot_digest = hashlib.sha256(slot.encode()).hexdigest()[:16]
         result = calendar.create_hold(
             HoldRequest(
-                hold_key=str(arguments.get("hold_key", "")),
-                case_id=str(arguments.get("case_id", "")),
-                start=_instant(arguments.get("start"), "start"),
-                end=_instant(arguments.get("end"), "end"),
+                hold_key=f"{case_id}:{slot_digest}",
+                case_id=case_id,
+                start=start,
+                end=end,
             )
         )
         return {
@@ -84,23 +105,14 @@ def calendar_tool_registry(calendar: CalendarTools) -> ServerToolRegistry:
         "required": ["start", "end"],
         "additionalProperties": False,
     }
-    hold_parameters = {
-        "type": "object",
-        "properties": {
-            "hold_key": {"type": "string", "minLength": 1, "maxLength": 128},
-            "case_id": {"type": "string", "minLength": 1, "maxLength": 128},
-            **window["properties"],
-        },
-        "required": ["hold_key", "case_id", "start", "end"],
-        "additionalProperties": False,
-    }
+
     return ServerToolRegistry(
         {
             "calendar.read": ServerTool(
                 "Check clinic calendar availability for a time window.", window, read
             ),
             "calendar.hold": ServerTool(
-                "Create a short-lived tentative appointment hold.", hold_parameters, hold
+                "Create a short-lived tentative appointment hold.", window, hold
             ),
         }
     )
@@ -134,25 +146,29 @@ class IntelligentTelegramReplyWorkflow:
             text = RED_FLAG_ACKNOWLEDGEMENT
         else:
             evidence = self.knowledge.gather(case.message, ())
-            result = self.role_runner.run(
-                self.role,
-                RoleTask(
-                    case_id=case.external_event_id,
-                    task_type="telegram_reply",
-                    input={
-                        "message": case.message,
-                        "evidence": [
-                            {
-                                "source_id": item.source_id,
-                                "title": item.title,
-                                "excerpt": item.excerpt,
-                                "url": item.url,
-                            }
-                            for item in evidence
-                        ],
-                    },
-                ),
-            )
+            token = _ACTIVE_CASE_ID.set(case.external_event_id)
+            try:
+                result = self.role_runner.run(
+                    self.role,
+                    RoleTask(
+                        case_id=case.external_event_id,
+                        task_type="telegram_reply",
+                        input={
+                            "message": case.message,
+                            "evidence": [
+                                {
+                                    "source_id": item.source_id,
+                                    "title": item.title,
+                                    "excerpt": item.excerpt,
+                                    "url": item.url,
+                                }
+                                for item in evidence
+                            ],
+                        },
+                    ),
+                )
+            finally:
+                _ACTIVE_CASE_ID.reset(token)
             text = TelegramReplyOutput.model_validate(result.output).text
             candidate = OutboundDraft.create(case.external_event_id, text)
             if review_draft(candidate).verdict != "pass":
