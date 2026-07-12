@@ -142,6 +142,7 @@ name = "clinic-agency-runner"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "dodopayments" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "langfuse" },
@@ -158,6 +159,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "dodopayments", specifier = ">=1.108.1" },
     { name = "fastapi", specifier = ">=0.115,<1" },
     { name = "httpx", specifier = ">=0.27,<1" },
     { name = "langfuse", specifier = ">=3,<4" },
@@ -188,6 +190,23 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/fc/f8/98eea607f65de6527f8a2e8885fc8015d3e6f5775df186e443e0964a11c3/distro-1.9.0.tar.gz", hash = "sha256:2fa77c6fd8940f116ee1d6b94a2f90b13b5ea8d019b98bc8bafdcabcdd9bdbed", size = 60722, upload-time = "2023-12-24T09:54:32.31Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl", hash = "sha256:7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2", size = 20277, upload-time = "2023-12-24T09:54:30.421Z" },
+]
+
+[[package]]
+name = "dodopayments"
+version = "1.108.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bb/3b/63897c4f1c127c8d4c32f3549d367af259bf0f8b5fa65d4bf08b01a7e488/dodopayments-1.108.1.tar.gz", hash = "sha256:7838abbef62075cce356fd539119cdb9c3c8aa3e749901e1044807b3788a0c7e", size = 281868, upload-time = "2026-07-09T08:10:03.995Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a9/e5/790605037230d1933ad7ce0dfa0de193a447023d6170ea69f0461bd3228e/dodopayments-1.108.1-py3-none-any.whl", hash = "sha256:ea4e31feef47ea84c762e27ed72677b428b5e08d8e0d4dfbef3d23147cf66cac", size = 401924, upload-time = "2026-07-09T08:10:02.383Z" },
 ]
 
 [[package]]

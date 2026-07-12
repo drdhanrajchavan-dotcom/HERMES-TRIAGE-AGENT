@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError
 
 from clinic_agency.config import Settings
 from clinic_agency.main import configured_app
@@ -42,3 +43,8 @@ def test_development_can_use_in_memory_store() -> None:
     app = configured_app(settings)
 
     assert app.state.case_store.cases == []
+
+
+def test_dodo_environment_is_restricted_to_provider_modes() -> None:
+    with pytest.raises(ValidationError):
+        Settings(dodo_environment="sandbox", _env_file=None)

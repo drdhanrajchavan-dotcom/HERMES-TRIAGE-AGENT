@@ -142,6 +142,29 @@ export default defineSchema({
     sentToEval: v.optional(v.boolean()),
   }).index("by_case", ["caseId"]),
 
+  bookingHolds: defineTable({
+    caseId: v.id("cases"),
+    holdKey: v.string(),
+    productId: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("checkout_created"),
+      v.literal("uncertain"),
+      v.literal("paid"),
+      v.literal("failed"),
+      v.literal("expired"),
+    ),
+    checkoutSessionId: v.optional(v.string()),
+    checkoutUrl: v.optional(v.string()),
+    paymentId: v.optional(v.string()),
+    langfuseTraceId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_hold_key", ["holdKey"])
+    .index("by_checkout_session", ["checkoutSessionId"])
+    .index("by_status_updated", ["status", "updatedAt"]),
+
   scheduledTasks: defineTable({
     caseId: v.optional(v.id("cases")),
     patientExternalId: v.string(),

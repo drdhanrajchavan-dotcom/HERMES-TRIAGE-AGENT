@@ -21,3 +21,11 @@ class Settings(BaseSettings):
     langfuse_host: str = ""
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
+    dodo_api_key: str = ""
+    dodo_webhook_secret: str = ""
+    dodo_environment: Literal["test_mode", "live_mode"] = "test_mode"
+    dodo_product_id: str = ""
+    dodo_currency: str = "INR"
+    dodo_deposit_percent: int = 20
+    dodo_success_url: str = ""
+    dodo_cancel_url: str = ""
