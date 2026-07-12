@@ -9,6 +9,9 @@ from clinic_agency.adapters.case_store import InMemoryCaseStore
 from clinic_agency.adapters.convex import ConvexCaseStore
 from clinic_agency.adapters.telegram import extract_update
 from clinic_agency.adapters.telegram_sender import TelegramSender
+from clinic_agency.calendar.convex import ConvexHoldStore
+from clinic_agency.calendar.google import GoogleCalendarClient
+from clinic_agency.calendar.service import CalendarService
 from clinic_agency.config import Settings
 from clinic_agency.domain.cases import Case
 from clinic_agency.knowledge.linkup import LinkupSearchClient
@@ -41,6 +44,7 @@ def create_app(
     plan_recorder: PlanRecorder | None = None,
     verify_langfuse: bool = False,
     webhook_shared_secret: str = "",
+    calendar_service: CalendarService | object | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -52,6 +56,7 @@ def create_app(
 
     application = FastAPI(title="Clinic Agency Runner", lifespan=lifespan)
     application.state.case_store = case_store or InMemoryCaseStore()
+    application.state.calendar_service = calendar_service
 
     @application.get("/health")
     def health() -> dict[str, str]:
@@ -140,6 +145,7 @@ def configured_app(settings: Settings | None = None) -> FastAPI:
             "TELEGRAM_WEBHOOK_SECRET": current.telegram_webhook_secret,
             "WEBHOOK_SHARED_SECRET": current.webhook_shared_secret,
             "LINKUP_API_KEY": current.linkup_api_key,
+            "GOOGLE_CALENDAR_ID": current.google_calendar_id,
         }
         missing = [name for name, value in required.items() if not value]
         if missing:
@@ -167,6 +173,16 @@ def configured_app(settings: Settings | None = None) -> FastAPI:
             knowledge_responder=knowledge_responder,
         )
     plan_recorder = store if isinstance(store, ConvexCaseStore) else None
+    calendar_service = None
+    if isinstance(store, ConvexCaseStore) and current.google_calendar_id:
+        calendar_service = CalendarService(
+            GoogleCalendarClient(current.google_calendar_id),
+            ConvexHoldStore(
+                current.convex_url,
+                internal_api_secret=current.internal_api_secret,
+            ),
+            hold_minutes=current.google_calendar_hold_minutes,
+        )
     return create_app(
         current.telegram_webhook_secret,
         store,
@@ -174,6 +190,7 @@ def configured_app(settings: Settings | None = None) -> FastAPI:
         plan_recorder,
         verify_langfuse=bool(current.langfuse_public_key and current.langfuse_secret_key),
         webhook_shared_secret=current.webhook_shared_secret,
+        calendar_service=calendar_service,
     )
 
 

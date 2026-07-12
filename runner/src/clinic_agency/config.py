@@ -31,3 +31,6 @@ class Settings(BaseSettings):
     dodo_deposit_percent: int = 20
     dodo_success_url: str = ""
     dodo_cancel_url: str = ""
+    google_calendar_id: str = ""
+    google_calendar_timezone: str = "Asia/Kolkata"
+    google_calendar_hold_minutes: int = 15

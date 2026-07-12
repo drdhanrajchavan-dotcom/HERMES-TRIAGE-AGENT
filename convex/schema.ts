@@ -143,6 +143,22 @@ export default defineSchema({
     sentToEval: v.optional(v.boolean()),
   }).index("by_case", ["caseId"]),
 
+  calendarHolds: defineTable({
+    holdKey: v.string(),
+    caseExternalId: v.string(),
+    calendarEventId: v.string(),
+    startAt: v.number(),
+    endAt: v.number(),
+    expiresAt: v.number(),
+    status: v.union(v.literal("tentative"), v.literal("released")),
+    langfuseTraceId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    releasedAt: v.optional(v.number()),
+  })
+    .index("by_hold_key", ["holdKey"])
+    .index("by_status_expiry", ["status", "expiresAt"]),
+
   bookingHolds: defineTable({
     caseId: v.id("cases"),
     holdKey: v.string(),
