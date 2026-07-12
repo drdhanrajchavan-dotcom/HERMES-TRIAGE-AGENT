@@ -57,6 +57,15 @@ def create_app(
     def health() -> dict[str, str]:
         return {"service": "clinic-agency-runner", "status": "ready"}
 
+    @application.get("/")
+    def root() -> dict[str, str]:
+        return {
+            "service": "clinic-agency-runner",
+            "status": "ready",
+            "interface": "api",
+            "health": "/health",
+        }
+
     @application.post("/webhooks/telegram")
     @observe(
         name="case.telegram",

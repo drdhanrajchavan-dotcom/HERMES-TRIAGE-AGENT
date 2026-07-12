@@ -34,8 +34,8 @@ function json(status: number, body: object): Response {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname === "/health" && request.method === "GET") {
-      return fetch(`${env.RUNNER_ORIGIN.replace(/\/$/, "")}/health`, {
+    if ((url.pathname === "/" || url.pathname === "/health") && request.method === "GET") {
+      return fetch(`${env.RUNNER_ORIGIN.replace(/\/$/, "")}${url.pathname}`, {
         headers: { Accept: "application/json" },
       });
     }

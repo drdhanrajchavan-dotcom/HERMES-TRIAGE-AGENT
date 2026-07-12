@@ -8,6 +8,21 @@ const env = {
 };
 
 describe("clinic agency edge", () => {
+  it("forwards the public root to the runner status endpoint", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ service: "clinic-agency-runner", status: "ready" }),
+    );
+
+    const response = await worker.fetch(new Request("https://edge.example/"), env);
+
+    expect(response.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://runner.example/",
+      expect.objectContaining({ headers: { Accept: "application/json" } }),
+    );
+    fetchSpy.mockRestore();
+  });
+
   it("rejects invalid Telegram secrets without reaching the runner", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     const response = await worker.fetch(
