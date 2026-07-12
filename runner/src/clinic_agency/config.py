@@ -45,6 +45,18 @@ class Settings(BaseSettings):
     telegram_reply_max_cost_usd: float = 0.25
     telegram_reply_input_price_per_million: float = 1.0
     telegram_reply_output_price_per_million: float = 4.0
+    elevenlabs_api_key: str = ""
+    elevenlabs_voice_id: str = ""
+    elevenlabs_stt_model_id: str = "scribe_v1"
+    elevenlabs_tts_model_id: str = "eleven_multilingual_v2"
+    elevenlabs_output_format: str = "mp3_44100_128"
+    elevenlabs_agent_id: str = ""
+    voice_max_audio_bytes: int = 25 * 1024 * 1024
+
+    @property
+    def voice_enabled(self) -> bool:
+        """Voice is opt-in and remains disabled when credentials are incomplete."""
+        return bool(self.elevenlabs_api_key.strip() and self.elevenlabs_voice_id.strip())
 
 
 def create_openai_client(settings: Settings) -> OpenAI:

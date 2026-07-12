@@ -136,18 +136,31 @@ Do not switch to live mode until refund, expiry, duplicate webhook, and partial-
 
 1. Create/sign in to ElevenLabs.
 2. Create a restricted API key.
-3. Select a voice suitable for clear English clinic communication.
-4. Copy its voice ID.
-5. Pin supported STT/TTS model IDs after testing latency and quality.
-6. Keep raw-audio storage disabled unless a separate consent and retention policy is approved.
+3. Select a voice suitable for the clinic's supported languages and copy its
+   non-secret **Voice ID**.
+4. Pin supported STT/TTS model IDs after testing latency and quality.
+5. Keep raw-audio storage disabled unless a separate consent and retention policy is approved.
 
 ```dotenv
 ELEVENLABS_API_KEY=
-ELEVENLABS_STT_MODEL_ID=
+ELEVENLABS_STT_MODEL_ID=scribe_v1
 ELEVENLABS_TTS_MODEL_ID=eleven_multilingual_v2
 ELEVENLABS_VOICE_ID=
+ELEVENLABS_OUTPUT_FORMAT=mp3_44100_128
+VOICE_MAX_AUDIO_BYTES=26214400
+# Optional metadata only; this adapter does not call the Agents Platform.
+ELEVENLABS_AGENT_ID=
 STORE_RAW_AUDIO=false
 ```
+
+`ELEVENLABS_API_KEY` is the only secret and must remain in the runner's
+server-side `.env`/Secret Manager. The exact required non-secret settings are
+`ELEVENLABS_VOICE_ID`, `ELEVENLABS_STT_MODEL_ID=scribe_v1`,
+`ELEVENLABS_TTS_MODEL_ID=eleven_multilingual_v2`, and
+`ELEVENLABS_OUTPUT_FORMAT=mp3_44100_128`. `ELEVENLABS_AGENT_ID` is optional and
+is retained only as deployment metadata: Hermes/OpenAI orchestration generates
+the authoritative reply; ElevenLabs performs STT and TTS only. Missing key or
+voice ID leaves voice disabled without affecting text workflows.
 
 ## 7. Linkup
 

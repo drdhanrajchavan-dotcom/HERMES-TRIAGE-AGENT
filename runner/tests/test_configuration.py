@@ -120,3 +120,24 @@ def test_live_composition_installs_intelligent_workflow(monkeypatch) -> None:
     assert app.state.outbound_workflow.role.prompt_ref.name == "roles/telegram-reply"
     assert app.state.outbound_workflow.role.prompt_ref.label == "production"
     assert app.state.outbound_workflow.role.tools == ("calendar.read", "calendar.hold")
+
+
+
+def test_voice_is_disabled_safely_until_required_credentials_are_configured() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.voice_enabled is False
+    assert settings.elevenlabs_stt_model_id == "scribe_v1"
+    assert settings.elevenlabs_tts_model_id == "eleven_multilingual_v2"
+    assert settings.elevenlabs_output_format == "mp3_44100_128"
+    assert settings.elevenlabs_agent_id == ""
+
+
+def test_voice_is_enabled_only_with_server_key_and_voice_id() -> None:
+    settings = Settings(
+        elevenlabs_api_key="server-key",
+        elevenlabs_voice_id="voice-id",
+        _env_file=None,
+    )
+
+    assert settings.voice_enabled is True

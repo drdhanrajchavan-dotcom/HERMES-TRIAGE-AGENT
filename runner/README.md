@@ -11,6 +11,21 @@ uv run ruff check .
 uv run uvicorn clinic_agency.main:app --reload
 ```
 
+## Optional Telegram voice I/O
+
+`clinic_agency.adapters.voice` provides integration-only abstractions; it is
+intentionally not wired into `main.py`. `TelegramVoiceNoteDownloader` resolves
+and downloads Telegram voice files, while `ElevenLabsVoiceAdapter` transcribes
+them and synthesizes audio from a reply already generated/approved by the
+Hermes/OpenAI workflow. It never delegates reasoning to ElevenLabs Agents.
+
+Copy the voice section from `.env.example`. Required runtime identifiers are an
+ElevenLabs Voice ID plus pinned `scribe_v1`, `eleven_multilingual_v2`, and
+`mp3_44100_128` model/output settings. `ELEVENLABS_AGENT_ID` is optional metadata
+and is not used by the adapter. Keep `ELEVENLABS_API_KEY` server-side. With the
+key or voice ID absent, `Settings.voice_enabled` is false and text operation is
+unaffected.
+
 ## Google Calendar holds (keyless ADC)
 
 The calendar integration uses Google Application Default Credentials with the
