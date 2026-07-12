@@ -12,6 +12,10 @@ class CalendarConflict(RuntimeError):
     """The requested slot cannot be held."""
 
 
+class CalendarPermanentError(RuntimeError):
+    """A non-retryable calendar request failure."""
+
+
 @dataclass(frozen=True)
 class Availability:
     available: bool
@@ -133,6 +137,9 @@ class CalendarService:
             )
             return self._store.activate(hold_key)
         except CalendarConflict:
+            raise
+        except CalendarPermanentError as exc:
+            self._store.fail(hold_key, str(exc))
             raise
         except Exception as exc:
             self._store.record_error(hold_key, str(exc))

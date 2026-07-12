@@ -134,6 +134,12 @@ class GoogleCalendarClient:
                     "existing Google event is not owned by this exact hold and slot"
                 )
             return event
+        if response.status_code in {400, 401, 403, 404}:
+            from clinic_agency.calendar.service import CalendarPermanentError
+
+            raise CalendarPermanentError(
+                f"Google Calendar rejected event creation with HTTP {response.status_code}"
+            )
         response.raise_for_status()
         return response.json()
 

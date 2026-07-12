@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from clinic_agency.calendar.google import GoogleCalendarClient
 from clinic_agency.calendar.service import (
     CalendarConflict,
+    CalendarPermanentError,
     CalendarService,
     HoldRequest,
     StoredHold,
@@ -127,6 +128,20 @@ def test_create_hold_rechecks_conflicts_before_inserting():
         service.create_hold(request(), now=START - timedelta(minutes=1))
 
     assert calendar.created == []
+
+
+def test_permanent_calendar_write_failure_marks_claim_failed():
+    class DeniedCalendar(FakeCalendar):
+        def create_tentative_event(self, **kwargs):
+            raise CalendarPermanentError("calendar write denied")
+
+    store = FakeStore()
+    service = CalendarService(DeniedCalendar(), store, hold_minutes=10)
+
+    with pytest.raises(CalendarPermanentError):
+        service.create_hold(request(), now=START - timedelta(minutes=1))
+
+    assert store.get("case-123:slot-1").status == "failed"
 
 
 def test_create_hold_is_tentative_and_persists_expiry():
