@@ -44,6 +44,32 @@ def test_telegram_webhook_rejects_invalid_secret() -> None:
     assert response.status_code == 401
 
 
+def test_telegram_webhook_requires_configured_edge_secret() -> None:
+    client = TestClient(
+        create_app(
+            telegram_webhook_secret="telegram-secret",
+            webhook_shared_secret="edge-secret",
+        )
+    )
+
+    missing = client.post(
+        "/webhooks/telegram",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "telegram-secret"},
+        json=telegram_update(),
+    )
+    accepted = client.post(
+        "/webhooks/telegram",
+        headers={
+            "X-Telegram-Bot-Api-Secret-Token": "telegram-secret",
+            "X-Clinic-Edge-Secret": "edge-secret",
+        },
+        json=telegram_update(),
+    )
+
+    assert missing.status_code == 401
+    assert accepted.status_code == 202
+
+
 def test_telegram_webhook_creates_case_once() -> None:
     app = create_app(telegram_webhook_secret="correct-secret")
     client = TestClient(app)

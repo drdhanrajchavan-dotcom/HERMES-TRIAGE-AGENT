@@ -4,6 +4,7 @@ import worker from "../src/index";
 const env = {
   RUNNER_ORIGIN: "https://runner.example",
   TELEGRAM_WEBHOOK_SECRET: "telegram-secret",
+  WEBHOOK_SHARED_SECRET: "edge-secret",
 };
 
 describe("clinic agency edge", () => {
@@ -48,6 +49,9 @@ describe("clinic agency edge", () => {
     expect((fetchSpy.mock.calls[0][0] as Request).url).toBe(
       "https://runner.example/webhooks/telegram",
     );
+    expect(
+      (fetchSpy.mock.calls[0][0] as Request).headers.get("X-Clinic-Edge-Secret"),
+    ).toBe("edge-secret");
     fetchSpy.mockRestore();
   });
 });

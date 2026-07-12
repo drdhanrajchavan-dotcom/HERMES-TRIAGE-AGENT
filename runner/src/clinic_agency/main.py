@@ -37,6 +37,7 @@ def create_app(
     outbound_workflow: OutboundWorkflow | None = None,
     plan_recorder: PlanRecorder | None = None,
     verify_langfuse: bool = False,
+    webhook_shared_secret: str = "",
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -58,7 +59,12 @@ def create_app(
         payload: dict[str, Any],
         response: Response,
         secret: Annotated[str | None, Header(alias="X-Telegram-Bot-Api-Secret-Token")] = None,
+        edge_secret: Annotated[str | None, Header(alias="X-Clinic-Edge-Secret")] = None,
     ) -> dict[str, str | int | bool]:
+        if webhook_shared_secret and (
+            not edge_secret or not compare_digest(edge_secret, webhook_shared_secret)
+        ):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
         if not secret or not compare_digest(secret, telegram_webhook_secret):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
         update = extract_update(payload)
@@ -96,6 +102,9 @@ def configured_app(settings: Settings | None = None) -> FastAPI:
             "LANGFUSE_PUBLIC_KEY": current.langfuse_public_key,
             "LANGFUSE_SECRET_KEY": current.langfuse_secret_key,
             "LANGFUSE_HOST": current.langfuse_host,
+            "TELEGRAM_BOT_TOKEN": current.telegram_bot_token,
+            "TELEGRAM_WEBHOOK_SECRET": current.telegram_webhook_secret,
+            "WEBHOOK_SHARED_SECRET": current.webhook_shared_secret,
         }
         missing = [name for name, value in required.items() if not value]
         if missing:
@@ -121,6 +130,7 @@ def configured_app(settings: Settings | None = None) -> FastAPI:
         workflow,
         plan_recorder,
         verify_langfuse=bool(current.langfuse_public_key and current.langfuse_secret_key),
+        webhook_shared_secret=current.webhook_shared_secret,
     )
 
 

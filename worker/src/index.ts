@@ -1,6 +1,7 @@
 export interface Env {
   RUNNER_ORIGIN: string;
   TELEGRAM_WEBHOOK_SECRET: string;
+  WEBHOOK_SHARED_SECRET: string;
 }
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -60,6 +61,7 @@ export default {
     const headers = new Headers();
     headers.set("Content-Type", "application/json");
     headers.set("X-Telegram-Bot-Api-Secret-Token", suppliedSecret);
+    headers.set("X-Clinic-Edge-Secret", env.WEBHOOK_SHARED_SECRET);
     return fetch(
       new Request(
         `${env.RUNNER_ORIGIN.replace(/\/$/, "")}/webhooks/telegram`,

@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     langfuse_host: str = ""
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
+    webhook_shared_secret: str = ""
     linkup_api_key: str = ""
     dodo_api_key: str = ""
     dodo_webhook_secret: str = ""
