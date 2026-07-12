@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
 
 from clinic_agency.calendar.google import GoogleCalendarClient
 from clinic_agency.calendar.service import (
@@ -151,6 +152,43 @@ def test_unknown_persistence_outcome_keeps_deterministic_event_for_retry():
 
     assert len(calendar.created) == 1
     assert calendar.deleted == []
+
+
+def test_internal_calendar_endpoints_require_edge_auth_and_expose_tool_boundary():
+    service = CalendarService(FakeCalendar(), FakeStore(), hold_minutes=10)
+    client = TestClient(
+        create_app(webhook_shared_secret="edge-secret", calendar_service=service)
+    )
+    payload = {"start": START.isoformat(), "end": END.isoformat()}
+
+    assert client.post("/internal/calendar/availability", json=payload).status_code == 401
+    available = client.post(
+        "/internal/calendar/availability",
+        json=payload,
+        headers={"X-Clinic-Edge-Secret": "edge-secret"},
+    )
+
+    assert available.status_code == 200
+    assert available.json() == {"available": True, "busy": []}
+
+
+def test_internal_calendar_expiry_endpoint_is_bounded_and_authenticated():
+    class ExpiryService:
+        def expire_due(self, *, limit):
+            assert limit == 25
+            return ["hold-1"]
+
+    client = TestClient(
+        create_app(webhook_shared_secret="edge-secret", calendar_service=ExpiryService())
+    )
+    response = client.post(
+        "/internal/calendar/expire",
+        json={"limit": 25},
+        headers={"X-Clinic-Edge-Secret": "edge-secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"expired_hold_keys": ["hold-1"]}
 
 
 def test_create_hold_is_idempotent_without_second_calendar_write():

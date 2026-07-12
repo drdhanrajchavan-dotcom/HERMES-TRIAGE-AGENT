@@ -1,9 +1,11 @@
 from contextlib import asynccontextmanager
+from datetime import datetime
 from secrets import compare_digest
 from typing import Annotated, Any, Protocol
 
 from fastapi import FastAPI, Header, HTTPException, Response, status
 from langfuse import get_client, observe
+from pydantic import BaseModel, Field
 
 from clinic_agency.adapters.case_store import InMemoryCaseStore
 from clinic_agency.adapters.convex import ConvexCaseStore
@@ -12,6 +14,7 @@ from clinic_agency.adapters.telegram_sender import TelegramSender
 from clinic_agency.calendar.convex import ConvexHoldStore
 from clinic_agency.calendar.google import GoogleCalendarClient
 from clinic_agency.calendar.service import CalendarService
+from clinic_agency.calendar.service import HoldRequest as CalendarHoldRequest
 from clinic_agency.config import Settings
 from clinic_agency.domain.cases import Case
 from clinic_agency.knowledge.linkup import LinkupSearchClient
@@ -37,6 +40,20 @@ class PlanRecorder(Protocol):
     def record_plan(self, external_event_id: str, plan: CasePlan) -> None: ...
 
 
+class CalendarWindowRequest(BaseModel):
+    start: datetime
+    end: datetime
+
+
+class CalendarCreateHoldRequest(CalendarWindowRequest):
+    hold_key: str = Field(min_length=1, max_length=128)
+    case_id: str = Field(min_length=1, max_length=128)
+
+
+class CalendarExpiryRequest(BaseModel):
+    limit: int = Field(default=100, ge=1, le=100)
+
+
 def create_app(
     telegram_webhook_secret: str = "",
     case_store: CaseStore | None = None,
@@ -58,6 +75,18 @@ def create_app(
     application.state.case_store = case_store or InMemoryCaseStore()
     application.state.calendar_service = calendar_service
 
+    def require_edge(edge_secret: str | None) -> None:
+        if not webhook_shared_secret:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+        if not edge_secret or not compare_digest(edge_secret, webhook_shared_secret):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+
+    def calendar() -> Any:
+        service = application.state.calendar_service
+        if service is None:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return service
+
     @application.get("/health")
     def health() -> dict[str, str]:
         return {"service": "clinic-agency-runner", "status": "ready"}
@@ -70,6 +99,49 @@ def create_app(
             "interface": "api",
             "health": "/health",
         }
+
+    @application.post("/internal/calendar/availability")
+    def calendar_availability(
+        payload: CalendarWindowRequest,
+        edge_secret: Annotated[str | None, Header(alias="X-Clinic-Edge-Secret")] = None,
+    ) -> dict[str, Any]:
+        require_edge(edge_secret)
+        result = calendar().availability(payload.start, payload.end)
+        return {"available": result.available, "busy": result.busy}
+
+    @application.post("/internal/calendar/holds")
+    def calendar_create_hold(
+        payload: CalendarCreateHoldRequest,
+        edge_secret: Annotated[str | None, Header(alias="X-Clinic-Edge-Secret")] = None,
+    ) -> dict[str, Any]:
+        require_edge(edge_secret)
+        hold = calendar().create_hold(
+            CalendarHoldRequest(payload.hold_key, payload.case_id, payload.start, payload.end)
+        )
+        return {
+            "hold_key": hold.hold_key,
+            "event_id": hold.event_id,
+            "status": hold.status,
+            "start": hold.start,
+            "end": hold.end,
+            "expires_at": hold.expires_at,
+        }
+
+    @application.post("/internal/calendar/holds/{hold_key}/release")
+    def calendar_release_hold(
+        hold_key: str,
+        edge_secret: Annotated[str | None, Header(alias="X-Clinic-Edge-Secret")] = None,
+    ) -> dict[str, bool]:
+        require_edge(edge_secret)
+        return {"released": calendar().release(hold_key)}
+
+    @application.post("/internal/calendar/expire")
+    def calendar_expire_holds(
+        payload: CalendarExpiryRequest,
+        edge_secret: Annotated[str | None, Header(alias="X-Clinic-Edge-Secret")] = None,
+    ) -> dict[str, list[str]]:
+        require_edge(edge_secret)
+        return {"expired_hold_keys": calendar().expire_due(limit=payload.limit)}
 
     @application.post("/webhooks/telegram")
     @observe(
