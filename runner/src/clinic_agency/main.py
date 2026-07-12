@@ -1,7 +1,9 @@
+from contextlib import asynccontextmanager
 from secrets import compare_digest
 from typing import Annotated, Any, Protocol
 
 from fastapi import FastAPI, Header, HTTPException, Response, status
+from langfuse import get_client
 
 from clinic_agency.adapters.case_store import InMemoryCaseStore
 from clinic_agency.adapters.convex import ConvexCaseStore
@@ -34,8 +36,17 @@ def create_app(
     case_store: CaseStore | None = None,
     outbound_workflow: OutboundWorkflow | None = None,
     plan_recorder: PlanRecorder | None = None,
+    verify_langfuse: bool = False,
 ) -> FastAPI:
-    application = FastAPI(title="Clinic Agency Runner")
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        if verify_langfuse and not get_client().auth_check():
+            raise RuntimeError("Langfuse authentication failed")
+        yield
+        if verify_langfuse:
+            get_client().flush()
+
+    application = FastAPI(title="Clinic Agency Runner", lifespan=lifespan)
     application.state.case_store = case_store or InMemoryCaseStore()
 
     @application.get("/health")
@@ -78,12 +89,17 @@ def create_app(
 
 def configured_app(settings: Settings | None = None) -> FastAPI:
     current = settings or Settings()
-    if current.app_env in {"staging", "production"} and (
-        not current.convex_url or not current.internal_api_secret
-    ):
-        raise RuntimeError(
-            "CONVEX_URL and INTERNAL_API_SECRET are required outside development and test"
-        )
+    if current.app_env in {"staging", "production"}:
+        required = {
+            "CONVEX_URL": current.convex_url,
+            "INTERNAL_API_SECRET": current.internal_api_secret,
+            "LANGFUSE_PUBLIC_KEY": current.langfuse_public_key,
+            "LANGFUSE_SECRET_KEY": current.langfuse_secret_key,
+            "LANGFUSE_HOST": current.langfuse_host,
+        }
+        missing = [name for name, value in required.items() if not value]
+        if missing:
+            raise RuntimeError(f"Missing required production configuration: {', '.join(missing)}")
     store: CaseStore = (
         ConvexCaseStore(
             current.convex_url,
@@ -99,7 +115,13 @@ def configured_app(settings: Settings | None = None) -> FastAPI:
             recorder=store,
         )
     plan_recorder = store if isinstance(store, ConvexCaseStore) else None
-    return create_app(current.telegram_webhook_secret, store, workflow, plan_recorder)
+    return create_app(
+        current.telegram_webhook_secret,
+        store,
+        workflow,
+        plan_recorder,
+        verify_langfuse=bool(current.langfuse_public_key and current.langfuse_secret_key),
+    )
 
 
 app = configured_app()

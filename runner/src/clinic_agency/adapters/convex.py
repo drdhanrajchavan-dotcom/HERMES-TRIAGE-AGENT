@@ -1,10 +1,12 @@
 from typing import Any
 
 import httpx
+from langfuse import observe
 
 from clinic_agency.domain.cases import Case
 from clinic_agency.orchestration.planner import CasePlan
 from clinic_agency.safety.outbound import AuthorizedOutbound, ComplianceReview
+from clinic_agency.telemetry import current_trace_id
 
 
 class ConvexCaseStore:
@@ -42,6 +44,7 @@ class ConvexCaseStore:
                 "reviewDraftHash": review.draft_hash,
                 "violations": list(review.violations),
                 "externalMessageId": external_message_id,
+                "langfuseTraceId": current_trace_id(),
             },
         )
 
@@ -51,6 +54,7 @@ class ConvexCaseStore:
             {
                 "internalApiSecret": self._internal_api_secret,
                 "externalEventId": external_event_id,
+                "langfuseTraceId": plan.langfuse_trace_id,
                 "steps": [
                     {
                         "key": step.key,
@@ -62,6 +66,12 @@ class ConvexCaseStore:
             },
         )
 
+    @observe(
+        name="tool.convex.mutation",
+        as_type="tool",
+        capture_input=False,
+        capture_output=False,
+    )
     def _mutate(self, path: str, args: dict[str, Any]) -> dict[str, Any]:
         response = self._client.post(
             self._url,
@@ -82,5 +92,6 @@ class ConvexCaseStore:
             "message": case.message,
             "mustEscalate": case.must_escalate,
             "redFlags": list(case.red_flags),
+            "langfuseTraceId": current_trace_id(),
             "openedAt": int(case.opened_at.timestamp() * 1000),
         }

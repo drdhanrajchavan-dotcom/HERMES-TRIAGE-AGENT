@@ -16,6 +16,21 @@ def test_production_requires_convex() -> None:
         configured_app(settings)
 
 
+def test_production_requires_langfuse() -> None:
+    settings = Settings(
+        app_env="production",
+        convex_url="https://example.convex.cloud",
+        internal_api_secret="internal-secret",
+        langfuse_public_key="",
+        langfuse_secret_key="",
+        telegram_webhook_secret="secret",
+        _env_file=None,
+    )
+
+    with pytest.raises(RuntimeError, match="LANGFUSE_PUBLIC_KEY"):
+        configured_app(settings)
+
+
 def test_development_can_use_in_memory_store() -> None:
     settings = Settings(
         app_env="development",

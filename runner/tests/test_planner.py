@@ -6,6 +6,10 @@ def step_keys(plan) -> list[str]:
     return [step.key for step in plan.steps]
 
 
+def test_manager_planner_is_langfuse_instrumented() -> None:
+    assert hasattr(ManagerPlanner.plan, "__wrapped__")
+
+
 def test_pricing_plan_routes_through_knowledge_draft_and_compliance() -> None:
     case = Case.from_telegram(1, 99, "How much is laser hair removal?")
 

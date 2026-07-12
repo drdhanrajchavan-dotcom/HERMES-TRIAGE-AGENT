@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Protocol
 
+from langfuse import get_client, observe
+
 from clinic_agency.adapters.telegram_sender import DeliveryResult
 from clinic_agency.domain.cases import Case
 from clinic_agency.safety.compliance import review_draft
@@ -49,7 +51,19 @@ class SafeAcknowledgementWorkflow:
         self._sender = sender
         self._recorder = recorder
 
+    @observe(name="workflow.safe_acknowledgement", as_type="chain", capture_input=False)
     def handle(self, case: Case, chat_id: int) -> WorkflowResult:
+        metadata = {
+            "case_id": case.external_event_id,
+            "role": "Communications",
+            "task_type": "acknowledgement",
+        }
+        get_client().update_current_trace(
+            session_id=case.external_event_id,
+            metadata=metadata,
+            tags=["communications", "acknowledgement"],
+        )
+        get_client().update_current_span(metadata=metadata)
         text = RED_FLAG_ACKNOWLEDGEMENT if case.must_escalate else ROUTINE_ACKNOWLEDGEMENT
         draft = OutboundDraft.create(case.external_event_id, text)
         review = review_draft(draft)

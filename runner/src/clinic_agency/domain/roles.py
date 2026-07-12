@@ -20,11 +20,19 @@ class Autonomy(StrEnum):
     DRAFT_ONLY = "draft-only"
 
 
+class PromptRef(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    name: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+
+
 class RoleConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     name: str = Field(min_length=1, max_length=80)
     mission: str = Field(min_length=1, max_length=500)
+    prompt_ref: PromptRef
     model: str = Field(min_length=1)
     tools: tuple[str, ...] = ()
     autonomy: Autonomy

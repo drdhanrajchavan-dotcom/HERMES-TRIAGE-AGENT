@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 import httpx
+from langfuse import get_client, observe
 
 from clinic_agency.safety.outbound import AuthorizedOutbound
 
@@ -22,7 +23,15 @@ class TelegramSender:
         self._url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         self._client = client or httpx.Client(timeout=timeout_seconds)
 
+    @observe(name="tool.telegram.send", as_type="tool", capture_input=False)
     def send(self, chat_id: int, outbound: AuthorizedOutbound) -> DeliveryResult:
+        get_client().update_current_span(
+            metadata={
+                "case_id": outbound.case_id,
+                "role": "Communications",
+                "task_type": "telegram.send",
+            }
+        )
         response = self._client.post(
             self._url,
             json={"chat_id": chat_id, "text": outbound.text},

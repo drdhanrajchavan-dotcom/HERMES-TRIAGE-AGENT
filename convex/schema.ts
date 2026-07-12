@@ -8,7 +8,7 @@ export default defineSchema({
   roles: defineTable({
     name: v.string(),
     mission: v.string(),
-    promptVersionId: v.optional(v.id("promptVersions")),
+    promptRef: v.object({ name: v.string(), label: v.string() }),
     model: v.string(),
     tools: v.array(v.string()),
     guardrails: v.object({
@@ -20,14 +20,6 @@ export default defineSchema({
     template: v.optional(v.boolean()),
     active: v.boolean(),
   }).index("by_name", ["name"]),
-
-  promptVersions: defineTable({
-    roleId: v.id("roles"),
-    text: v.string(),
-    version: v.number(),
-    evalScore: v.optional(v.number()),
-    status: v.union(v.literal("draft"), v.literal("published"), v.literal("blocked")),
-  }).index("by_role_version", ["roleId", "version"]),
 
   patients: defineTable({
     externalId: v.string(),
@@ -76,24 +68,16 @@ export default defineSchema({
 
   steps: defineTable({
     caseId: v.id("cases"),
-    parentStepId: v.optional(v.id("steps")),
     roleId: v.optional(v.id("roles")),
-    taskKey: v.string(),
-    inputDigest: v.string(),
-    outputDigest: v.optional(v.string()),
-    model: v.optional(v.string()),
-    tokensIn: v.optional(v.number()),
-    tokensOut: v.optional(v.number()),
-    costUsd: v.optional(v.number()),
-    latencyMs: v.optional(v.number()),
     status: v.union(
-      v.literal("running"),
       v.literal("ok"),
       v.literal("bounced"),
       v.literal("failed"),
       v.literal("escalated"),
     ),
     bounceNotes: v.optional(v.array(v.string())),
+    langfuseTraceId: v.string(),
+    costRunning: v.number(),
     createdAt: v.number(),
   })
     .index("by_case_created", ["caseId", "createdAt"])
@@ -123,7 +107,6 @@ export default defineSchema({
     caseId: v.id("cases"),
     draftHash: v.string(),
     reviewerRoleId: v.optional(v.id("roles")),
-    promptVersionId: v.optional(v.id("promptVersions")),
     verdict: v.union(v.literal("pass"), v.literal("fail")),
     violations: v.array(v.string()),
     notes: v.array(v.string()),
@@ -156,6 +139,7 @@ export default defineSchema({
     resolvedBy: v.optional(v.string()),
     createdAt: v.number(),
     resolvedAt: v.optional(v.number()),
+    sentToEval: v.optional(v.boolean()),
   }).index("by_case", ["caseId"]),
 
   scheduledTasks: defineTable({

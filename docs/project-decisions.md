@@ -13,6 +13,8 @@ Last updated: 2026-07-12
 - The initial product language is English only.
 - The project owner is the final approver for red flags, clinical-boundary wording, claims policy, and structured KB policy cards.
 - The recommended FastAPI host is Google Cloud Run in `asia-south1`, behind Cloudflare Worker ingress.
+- Convex stores business state only; Langfuse owns traces, prompt registry, datasets, experiments, scores, token usage, latency, and detailed cost.
+- The console deep-links to Langfuse rather than implementing a custom trace tree or trace diff.
 - Synthetic personas are used until privacy, consent, retention, access-control, and production-readiness reviews authorize real patient data.
 
 ## Production implications

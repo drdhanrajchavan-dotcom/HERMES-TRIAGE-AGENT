@@ -9,6 +9,7 @@ export const ingestTelegram = mutation({
     message: v.string(),
     mustEscalate: v.boolean(),
     redFlags: v.array(v.string()),
+    langfuseTraceId: v.string(),
     openedAt: v.number(),
   },
   handler: async (ctx, args) => {
@@ -23,7 +24,11 @@ export const ingestTelegram = mutation({
     if (existing) return { caseId: existing._id, duplicate: true };
 
     const status = args.mustEscalate ? "escalated" : "open";
-    const { internalApiSecret: _, ...caseInput } = args;
+    const {
+      internalApiSecret: _,
+      langfuseTraceId: __,
+      ...caseInput
+    } = args;
     const caseId = await ctx.db.insert("cases", {
       ...caseInput,
       channel: "telegram",
@@ -40,9 +45,9 @@ export const ingestTelegram = mutation({
     });
     await ctx.db.insert("steps", {
       caseId,
-      taskKey: "ingest.telegram",
-      inputDigest: args.externalEventId,
       status: args.mustEscalate ? "escalated" : "ok",
+      langfuseTraceId: args.langfuseTraceId,
+      costRunning: 0,
       createdAt: args.openedAt,
     });
     if (args.mustEscalate) {
@@ -66,6 +71,7 @@ export const recordPlan = mutation({
   args: {
     internalApiSecret: v.string(),
     externalEventId: v.string(),
+    langfuseTraceId: v.string(),
     steps: v.array(
       v.object({
         key: v.string(),
@@ -87,10 +93,9 @@ export const recordPlan = mutation({
     await ctx.db.patch(caseRecord._id, { plan: args.steps });
     await ctx.db.insert("steps", {
       caseId: caseRecord._id,
-      taskKey: "manager.plan",
-      inputDigest: args.externalEventId,
-      outputDigest: args.steps.map((step) => step.key).join(","),
       status: "ok",
+      langfuseTraceId: args.langfuseTraceId,
+      costRunning: 0,
       createdAt: Date.now(),
     });
     return { recorded: true };
@@ -106,6 +111,7 @@ export const recordApprovedDelivery = mutation({
     reviewDraftHash: v.string(),
     violations: v.array(v.string()),
     externalMessageId: v.string(),
+    langfuseTraceId: v.string(),
   },
   handler: async (ctx, args) => {
     const expectedSecret = process.env.INTERNAL_API_SECRET;
@@ -151,13 +157,27 @@ export const recordApprovedDelivery = mutation({
     });
     await ctx.db.insert("steps", {
       caseId: caseRecord._id,
-      taskKey: "outbound.telegram",
-      inputDigest: args.draftHash,
-      outputDigest: args.externalMessageId,
       status: "ok",
+      langfuseTraceId: args.langfuseTraceId,
+      costRunning: 0,
       createdAt,
     });
     return { recorded: true, duplicate: false };
+  },
+});
+
+export const listCaseSteps = query({
+  args: { externalEventId: v.string() },
+  handler: async (ctx, { externalEventId }) => {
+    const caseRecord = await ctx.db
+      .query("cases")
+      .withIndex("by_external_event", (q) => q.eq("externalEventId", externalEventId))
+      .unique();
+    if (!caseRecord) return [];
+    return await ctx.db
+      .query("steps")
+      .withIndex("by_case_created", (q) => q.eq("caseId", caseRecord._id))
+      .collect();
   },
 });
 
