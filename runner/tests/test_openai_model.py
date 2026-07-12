@@ -39,7 +39,7 @@ def test_openai_model_returns_validated_output_and_computed_cost() -> None:
         prompt="Follow clinic policy.",
         input={"question": "synthetic question"},
         output_schema=Answer,
-        allowed_tools=("knowledge.search",),
+        allowed_tools=(),
         max_cost_usd=0.01,
         metadata={"case_id": "eval-1", "role": "Knowledge", "task_type": "answer"},
     )

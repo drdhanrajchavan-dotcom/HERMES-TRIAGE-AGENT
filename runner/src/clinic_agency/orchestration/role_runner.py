@@ -47,6 +47,7 @@ class StructuredModel(Protocol):
         allowed_tools: tuple[str, ...],
         max_cost_usd: float,
         metadata: dict[str, Any],
+        validation_feedback: str | None = None,
     ) -> tuple[dict[str, Any] | None, float]: ...
 
 
@@ -87,6 +88,7 @@ class HostedRoleExecutor:
             "prompt_version": hosted_prompt.version,
         }
         total_cost = 0.0
+        validation_feedback = None
         for _attempt in range(self._max_attempts):
             raw, cost = self._model.generate_structured(
                 model=role.model,
@@ -96,6 +98,7 @@ class HostedRoleExecutor:
                 allowed_tools=role.tools,
                 max_cost_usd=role.max_cost_usd - total_cost,
                 metadata=metadata,
+                validation_feedback=validation_feedback,
             )
             total_cost += cost
             if total_cost > role.max_cost_usd:
@@ -104,7 +107,11 @@ class HostedRoleExecutor:
                 )
             try:
                 output = schema.model_validate(raw)
-            except ValidationError:
+            except ValidationError as error:
+                validation_feedback = "; ".join(
+                    f"{'.'.join(map(str, item['loc']))}: {item['msg']}"
+                    for item in error.errors(include_input=False)
+                )
                 continue
             requested = tuple(getattr(output, "requested_tools", ()))
             forbidden = sorted(set(requested) - set(role.tools))

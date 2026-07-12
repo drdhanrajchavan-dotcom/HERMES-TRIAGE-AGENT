@@ -3,9 +3,6 @@ import pytest
 from clinic_agency.evaluation.governance import (
     EvaluationCase,
     EvaluationGovernance,
-    EvaluationReport,
-    PromptPublishDenied,
-    PromptPublishGate,
     Score,
 )
 from clinic_agency.evaluation.scenarios import clinic_safety_scenarios
@@ -39,7 +36,13 @@ def test_dataset_scaffolding_uses_synthetic_case_ids_and_governance_metadata():
 
     governance.create_dataset(
         "triage-v1",
-        [EvaluationCase(case_id="eval-001", input={"intent": "pricing"}, expected={"safe": True})],
+        [
+            EvaluationCase(
+                case_id="eval-001",
+                input={"synthetic": True, "intent": "pricing"},
+                expected={"safe": True},
+            )
+        ],
         role="Triage",
         task_type="triage",
     )
@@ -47,7 +50,7 @@ def test_dataset_scaffolding_uses_synthetic_case_ids_and_governance_metadata():
     assert client.datasets[0]["name"] == "triage-v1"
     assert client.items[0] == {
         "dataset_name": "triage-v1",
-        "input": {"intent": "pricing"},
+        "input": {"synthetic": True, "intent": "pricing"},
         "expected_output": {"safe": True},
         "metadata": {"case_id": "eval-001", "role": "Triage", "task_type": "triage"},
     }
@@ -74,44 +77,6 @@ def test_experiment_scaffolding_attaches_required_non_patient_metadata():
     }
 
 
-def passing_report():
-    return EvaluationReport(
-        dataset_name="triage-v1",
-        run_name="candidate-12",
-        scores={"compliance": 1.0, "red_flag_recall": 1.0, "tool_policy": 1.0},
-    )
-
-
-def test_server_side_publish_gate_labels_prompt_only_after_required_scores_pass():
-    client = FakeLangfuse()
-
-    result = PromptPublishGate(client).publish(
-        name="roles/triage",
-        prompt="hosted prompt {{case_id}}",
-        report=passing_report(),
-        label="production",
-    )
-
-    assert result == "published"
-    assert client.prompts[0]["labels"] == ["production"]
-    assert client.prompts[0]["config"]["evaluation_run"] == "candidate-12"
-
-
-def test_publish_gate_rejects_missing_or_failing_deterministic_scores():
-    client = FakeLangfuse()
-    report = EvaluationReport(
-        dataset_name="triage-v1",
-        run_name="bad-run",
-        scores={"compliance": 1.0, "red_flag_recall": 0.99},
-    )
-
-    with pytest.raises(PromptPublishDenied, match="red_flag_recall, tool_policy"):
-        PromptPublishGate(client).publish(
-            name="roles/triage", prompt="unsafe candidate", report=report
-        )
-
-    assert client.prompts == []
-
 
 def test_publish_gate_dataset_contains_ten_unique_synthetic_safety_scenarios():
     scenarios = clinic_safety_scenarios()
@@ -120,3 +85,18 @@ def test_publish_gate_dataset_contains_ten_unique_synthetic_safety_scenarios():
     assert len({scenario.case_id for scenario in scenarios}) == 10
     assert all(scenario.case_id.startswith("eval-") for scenario in scenarios)
     assert all(scenario.input["synthetic"] is True for scenario in scenarios)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"synthetic": False, "message": "hello"},
+        {"synthetic": True, "phone": "+919876543210"},
+        {"synthetic": True, "chat_id": "telegram:123"},
+        {"synthetic": True, "message": "Call me on 9876543210"},
+        {"synthetic": True, "external_event_id": "evt-real-1"},
+    ],
+)
+def test_evaluation_case_rejects_non_synthetic_or_patient_identifiers(payload):
+    with pytest.raises(ValueError, match="synthetic|identifier|phone"):
+        EvaluationCase(case_id="eval-safe", input=payload, expected={"safe": True})

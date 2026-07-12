@@ -48,19 +48,59 @@ class FakeStore:
     def get(self, hold_key):
         return self.holds.get(hold_key)
 
-    def save(self, hold):
+    def claim(self, hold):
+        existing = self.holds.get(hold.hold_key)
+        if existing:
+            if (existing.case_id, existing.start, existing.end) != (
+                hold.case_id,
+                hold.start,
+                hold.end,
+            ):
+                raise ValueError("idempotency key already belongs to a different slot")
+            return existing
+        if any(
+            h.start == hold.start
+            and h.end == hold.end
+            and h.status in ("creating", "active", "releasing")
+            for h in self.holds.values()
+        ):
+            raise CalendarConflict("requested calendar slot is already claimed")
         self.holds[hold.hold_key] = hold
+        return hold
 
-    def mark_released(self, hold_key, released_at):
+    def activate(self, hold_key):
         hold = self.holds[hold_key]
-        self.holds[hold_key] = StoredHold(**{**hold.__dict__, "status": "released"})
+        self.holds[hold_key] = StoredHold(**{**hold.__dict__, "status": "active"})
+        return self.holds[hold_key]
 
-    def expired(self, now):
-        return [h for h in self.holds.values() if h.status == "tentative" and h.expires_at <= now]
+    def record_error(self, hold_key, error):
+        pass
+
+    def fail(self, hold_key, error):
+        hold = self.holds[hold_key]
+        self.holds[hold_key] = StoredHold(**{**hold.__dict__, "status": "failed"})
+
+    def claim_release(self, hold_key, released_at):
+        hold = self.holds.get(hold_key)
+        if not hold or hold.status in ("released", "failed", "expired"):
+            return None
+        self.holds[hold_key] = StoredHold(**{**hold.__dict__, "status": "releasing"})
+        return self.holds[hold_key]
+
+    def finalize_release(self, hold_key, released_at, *, expired=False):
+        hold = self.holds[hold_key]
+        self.holds[hold_key] = StoredHold(
+            **{**hold.__dict__, "status": "expired" if expired else "released"}
+        )
+
+    def expired(self, now, *, limit=100):
+        return [h for h in self.holds.values() if h.status == "active" and h.expires_at <= now][
+            :limit
+        ]
 
 
 class FailingStore(FakeStore):
-    def save(self, hold):
+    def activate(self, hold_key):
         raise TimeoutError("persistence outcome unknown")
 
 
@@ -94,8 +134,8 @@ def test_create_hold_is_tentative_and_persists_expiry():
 
     hold = service.create_hold(request(), now=START - timedelta(minutes=1))
 
-    assert hold.status == "tentative"
-    assert hold.expires_at == START + timedelta(minutes=9)
+    assert hold.status == "active"
+    assert hold.expires_at == START
     assert calendar.created[0]["status"] == "tentative"
     assert calendar.created[0]["hold_key"] == "case-123:slot-1"
     assert calendar.created[0]["event_id"] == hold.event_id
@@ -118,7 +158,7 @@ def test_create_hold_is_idempotent_without_second_calendar_write():
     service = CalendarService(calendar, store, hold_minutes=10)
 
     first = service.create_hold(request(), now=START - timedelta(minutes=1))
-    second = service.create_hold(request(), now=START)
+    second = service.create_hold(request(), now=START - timedelta(seconds=30))
 
     assert second == first
     assert len(calendar.created) == 1
@@ -130,7 +170,8 @@ def test_same_idempotency_key_cannot_change_slot():
 
     with pytest.raises(ValueError, match="different slot"):
         service.create_hold(
-            HoldRequest("case-123:slot-1", "case-123", START, END + timedelta(minutes=5)), now=START
+            HoldRequest("case-123:slot-1", "case-123", START, END + timedelta(minutes=5)),
+            now=START - timedelta(seconds=30),
         )
 
 
@@ -227,3 +268,70 @@ def test_google_client_loads_adc_with_calendar_scope(monkeypatch):
 
     assert client.access_token() == "token"
     assert seen["scopes"] == ["https://www.googleapis.com/auth/calendar"]
+
+
+def test_different_keys_cannot_claim_the_same_slot_before_google_write():
+    calendar, store = FakeCalendar(), FakeStore()
+    service = CalendarService(calendar, store, hold_minutes=10)
+    service.create_hold(request("key-one"), now=START - timedelta(minutes=1))
+    with pytest.raises(CalendarConflict, match="claimed"):
+        service.create_hold(request("key-two"), now=START - timedelta(minutes=1))
+    assert len(calendar.created) == 1
+
+
+def test_terminal_idempotency_key_is_never_returned_as_success():
+    calendar, store = FakeCalendar(), FakeStore()
+    service = CalendarService(calendar, store, hold_minutes=10)
+    hold = service.create_hold(request(), now=START - timedelta(minutes=11))
+    service.release(hold.hold_key, now=START)
+    with pytest.raises(CalendarConflict, match="terminal"):
+        service.create_hold(request(), now=START - timedelta(seconds=30))
+
+
+def test_google_freebusy_fails_closed_on_calendar_level_errors():
+    def handler(req):
+        return httpx.Response(
+            200, json={"calendars": {"clinic@example.com": {"errors": [{"reason": "notFound"}]}}}
+        )
+
+    client = GoogleCalendarClient(
+        "clinic@example.com",
+        token_provider=lambda: "adc-token",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(RuntimeError, match="freeBusy.*notFound"):
+        client.busy_periods(START, END)
+
+
+def test_google_409_rejects_event_not_owned_by_exact_hold_and_slot():
+    def handler(req):
+        if req.method == "POST":
+            return httpx.Response(409)
+        return httpx.Response(
+            200,
+            json={
+                "id": "abc123",
+                "start": {"dateTime": START.isoformat()},
+                "end": {"dateTime": (END + timedelta(minutes=5)).isoformat()},
+                "extendedProperties": {"private": {"holdKey": "safe-key"}},
+            },
+        )
+
+    client = GoogleCalendarClient(
+        "clinic@example.com",
+        token_provider=lambda: "adc-token",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(CalendarConflict, match="not owned"):
+        client.create_tentative_event(
+            event_id="abc123", start=START, end=END, hold_key="safe-key", expires_at=END
+        )
+
+
+@pytest.mark.parametrize(
+    "key,case", [("", "case"), ("x" * 129, "case"), ("key", ""), ("key", "x" * 129)]
+)
+def test_create_hold_validates_identifiers(key, case):
+    service = CalendarService(FakeCalendar(), FakeStore())
+    with pytest.raises(ValueError):
+        service.create_hold(HoldRequest(key, case, START, END), now=START - timedelta(minutes=1))

@@ -70,7 +70,18 @@ class GoogleCalendarClient:
             },
         )
         response.raise_for_status()
-        entries = response.json().get("calendars", {}).get(self._calendar_id, {}).get("busy", [])
+        payload = response.json()
+        calendars = payload.get("calendars")
+        if not isinstance(calendars, dict) or self._calendar_id not in calendars:
+            raise RuntimeError("Google freeBusy response omitted the configured calendar")
+        entry = calendars[self._calendar_id]
+        errors = entry.get("errors") or []
+        if errors:
+            reasons = ", ".join(str(error.get("reason", "unknown")) for error in errors)
+            raise RuntimeError(f"Google freeBusy calendar error: {reasons}")
+        entries = entry.get("busy")
+        if not isinstance(entries, list):
+            raise RuntimeError("Google freeBusy response omitted busy periods")
         return [(_parse(item["start"]), _parse(item["end"])) for item in entries]
 
     @observe(
@@ -104,6 +115,25 @@ class GoogleCalendarClient:
         response = self._client.post(url, headers=self._headers(), json=body)
         if response.status_code == 409:
             response = self._client.get(f"{url}/{event_id}", headers=self._headers())
+            response.raise_for_status()
+            event = response.json()
+            private = event.get("extendedProperties", {}).get("private", {})
+            try:
+                owned = (
+                    event.get("id") == event_id
+                    and private.get("holdKey") == hold_key
+                    and _parse(event["start"]["dateTime"]) == start.astimezone(UTC)
+                    and _parse(event["end"]["dateTime"]) == end.astimezone(UTC)
+                )
+            except (KeyError, TypeError, ValueError):
+                owned = False
+            if not owned:
+                from clinic_agency.calendar.service import CalendarConflict
+
+                raise CalendarConflict(
+                    "existing Google event is not owned by this exact hold and slot"
+                )
+            return event
         response.raise_for_status()
         return response.json()
 

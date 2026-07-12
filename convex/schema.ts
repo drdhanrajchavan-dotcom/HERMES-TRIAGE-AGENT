@@ -150,13 +150,24 @@ export default defineSchema({
     startAt: v.number(),
     endAt: v.number(),
     expiresAt: v.number(),
-    status: v.union(v.literal("tentative"), v.literal("released")),
+    status: v.union(
+      v.literal("creating"),
+      v.literal("active"),
+      v.literal("releasing"),
+      v.literal("released"),
+      v.literal("expired"),
+      v.literal("failed"),
+    ),
     langfuseTraceId: v.string(),
+    attempts: v.number(),
+    lastError: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
+    releaseRequestedAt: v.optional(v.number()),
     releasedAt: v.optional(v.number()),
   })
     .index("by_hold_key", ["holdKey"])
+    .index("by_slot", ["startAt", "endAt"])
     .index("by_status_expiry", ["status", "expiresAt"]),
 
   bookingHolds: defineTable({

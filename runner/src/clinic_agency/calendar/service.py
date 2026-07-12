@@ -9,7 +9,7 @@ from langfuse import observe
 
 
 class CalendarConflict(RuntimeError):
-    """The requested slot became unavailable before the hold was created."""
+    """The requested slot cannot be held."""
 
 
 @dataclass(frozen=True)
@@ -34,7 +34,7 @@ class StoredHold:
     start: datetime
     end: datetime
     expires_at: datetime
-    status: str = "tentative"
+    status: str = "creating"
 
 
 class CalendarPort(Protocol):
@@ -45,9 +45,15 @@ class CalendarPort(Protocol):
 
 class HoldStore(Protocol):
     def get(self, hold_key: str) -> StoredHold | None: ...
-    def save(self, hold: StoredHold) -> None: ...
-    def mark_released(self, hold_key: str, released_at: datetime) -> None: ...
-    def expired(self, now: datetime) -> list[StoredHold]: ...
+    def claim(self, hold: StoredHold) -> StoredHold: ...
+    def activate(self, hold_key: str) -> StoredHold: ...
+    def record_error(self, hold_key: str, error: str) -> None: ...
+    def fail(self, hold_key: str, error: str) -> None: ...
+    def claim_release(self, hold_key: str, released_at: datetime) -> StoredHold | None: ...
+    def finalize_release(
+        self, hold_key: str, released_at: datetime, *, expired: bool = False
+    ) -> None: ...
+    def expired(self, now: datetime, *, limit: int = 100) -> list[StoredHold]: ...
 
 
 def _aware(value: datetime, name: str) -> datetime:
@@ -56,10 +62,17 @@ def _aware(value: datetime, name: str) -> datetime:
     return value.astimezone(UTC)
 
 
+def _identifier(value: str, name: str) -> str:
+    value = value.strip()
+    if not value or len(value) > 128:
+        raise ValueError(f"{name} must contain 1 to 128 characters")
+    return value
+
+
 class CalendarService:
     def __init__(self, calendar: CalendarPort, store: HoldStore, *, hold_minutes: int = 15) -> None:
-        if hold_minutes <= 0:
-            raise ValueError("hold_minutes must be positive")
+        if not 1 <= hold_minutes <= 120:
+            raise ValueError("hold_minutes must be between 1 and 120")
         self._calendar = calendar
         self._store = store
         self._hold_duration = timedelta(minutes=hold_minutes)
@@ -82,51 +95,74 @@ class CalendarService:
         capture_output=False,
     )
     def create_hold(self, request: HoldRequest, *, now: datetime | None = None) -> StoredHold:
+        hold_key = _identifier(request.hold_key, "hold_key")
+        case_id = _identifier(request.case_id, "case_id")
         start, end = _aware(request.start, "start"), _aware(request.end, "end")
         now = _aware(now or datetime.now(UTC), "now")
-        existing = self._store.get(request.hold_key)
-        if existing:
-            if (existing.case_id, existing.start, existing.end) != (request.case_id, start, end):
-                raise ValueError("idempotency key already belongs to a different slot")
-            return existing
-        if not self.availability(start, end).available:
-            raise CalendarConflict("requested calendar slot is no longer available")
-        event_id = "h" + hashlib.sha256(request.hold_key.encode()).hexdigest()[:39]
-        hold = StoredHold(
-            request.hold_key, request.case_id, event_id, start, end, now + self._hold_duration
-        )
-        self._calendar.create_tentative_event(
-            event_id=event_id,
-            start=start,
-            end=end,
-            hold_key=request.hold_key,
-            expires_at=hold.expires_at,
-            status="tentative",
-        )
-        # Keep the deterministic event on an unknown persistence outcome. A retry can
-        # recover the same Google event (409 -> GET) and finish saving business state.
-        self._store.save(hold)
-        return hold
+        if end <= start:
+            raise ValueError("end must be after start")
+        if start <= now:
+            raise ValueError("start must be in the future")
+        if end - start > timedelta(hours=8):
+            raise ValueError("appointment duration must not exceed 8 hours")
+        expires_at = min(now + self._hold_duration, start)
+        event_id = "h" + hashlib.sha256(hold_key.encode()).hexdigest()[:39]
+        proposed = StoredHold(hold_key, case_id, event_id, start, end, expires_at, "creating")
+
+        claimed = self._store.claim(proposed)  # atomic idempotency + canonical slot claim
+        if (claimed.case_id, claimed.start, claimed.end) != (case_id, start, end):
+            raise ValueError("idempotency key already belongs to a different slot")
+        if claimed.status == "active" and claimed.expires_at > now:
+            return claimed
+        if claimed.status in {"released", "expired", "failed"} or claimed.expires_at <= now:
+            raise CalendarConflict("idempotency key is terminal or expired")
+        if claimed.status != "creating":
+            raise CalendarConflict(f"hold cannot be created from {claimed.status} state")
+
+        try:
+            if not self.availability(start, end).available:
+                self._store.fail(hold_key, "calendar slot is busy")
+                raise CalendarConflict("requested calendar slot is no longer available")
+            self._calendar.create_tentative_event(
+                event_id=event_id,
+                start=start,
+                end=end,
+                hold_key=hold_key,
+                expires_at=claimed.expires_at,
+                status="tentative",
+            )
+            return self._store.activate(hold_key)
+        except CalendarConflict:
+            raise
+        except Exception as exc:
+            self._store.record_error(hold_key, str(exc))
+            raise
 
     @observe(
         name="tool.calendar.release_hold", as_type="tool", capture_input=False, capture_output=False
     )
-    def release(self, hold_key: str, *, now: datetime | None = None) -> bool:
-        hold = self._store.get(hold_key)
-        if not hold or hold.status != "tentative":
-            return False
+    def release(self, hold_key: str, *, now: datetime | None = None, expired: bool = False) -> bool:
         now = _aware(now or datetime.now(UTC), "now")
-        self._calendar.delete_event(hold.event_id)
-        self._store.mark_released(hold_key, now)
+        hold = self._store.claim_release(_identifier(hold_key, "hold_key"), now)
+        if not hold:
+            return False
+        try:
+            self._calendar.delete_event(hold.event_id)
+        except Exception as exc:
+            self._store.record_error(hold_key, str(exc))
+            raise
+        self._store.finalize_release(hold_key, now, expired=expired)
         return True
 
     @observe(
         name="tool.calendar.expire_holds", as_type="tool", capture_input=False, capture_output=False
     )
-    def expire_due(self, *, now: datetime | None = None) -> list[str]:
+    def expire_due(self, *, now: datetime | None = None, limit: int = 100) -> list[str]:
         now = _aware(now or datetime.now(UTC), "now")
+        if not 1 <= limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
         released = []
-        for hold in self._store.expired(now):
-            if self.release(hold.hold_key, now=now):
+        for hold in self._store.expired(now, limit=limit):
+            if self.release(hold.hold_key, now=now, expired=True):
                 released.append(hold.hold_key)
         return released

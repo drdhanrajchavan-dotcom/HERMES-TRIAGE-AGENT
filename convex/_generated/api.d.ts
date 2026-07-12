@@ -8,7 +8,10 @@
  * @module
  */
 
+import type * as calendarHolds from "../calendarHolds.js";
 import type * as cases from "../cases.js";
+import type * as operations from "../operations.js";
+import type * as operationsCore from "../operationsCore.js";
 import type * as payments from "../payments.js";
 
 import type {
@@ -18,7 +21,10 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  calendarHolds: typeof calendarHolds;
   cases: typeof cases;
+  operations: typeof operations;
+  operationsCore: typeof operationsCore;
   payments: typeof payments;
 }>;
 

@@ -118,6 +118,8 @@ def test_invalid_outputs_stop_after_bounded_attempts():
         )(role(), task())
 
     assert len(model.calls) == 2
+    assert model.calls[0]["validation_feedback"] is None
+    assert "valid dictionary" in model.calls[1]["validation_feedback"]
 
 
 def test_model_cannot_request_tool_outside_deterministic_role_allowlist():
