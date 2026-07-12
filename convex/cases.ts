@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 
 export const ingestTelegram = mutation({
   args: {
+    internalApiSecret: v.string(),
     externalEventId: v.string(),
     patientExternalId: v.string(),
     message: v.string(),
@@ -11,6 +12,10 @@ export const ingestTelegram = mutation({
     openedAt: v.number(),
   },
   handler: async (ctx, args) => {
+    const expectedSecret = process.env.INTERNAL_API_SECRET;
+    if (!expectedSecret || args.internalApiSecret !== expectedSecret) {
+      throw new Error("Unauthorized ingestion request");
+    }
     const existing = await ctx.db
       .query("cases")
       .withIndex("by_external_event", (q) => q.eq("externalEventId", args.externalEventId))
@@ -18,8 +23,9 @@ export const ingestTelegram = mutation({
     if (existing) return { caseId: existing._id, duplicate: true };
 
     const status = args.mustEscalate ? "escalated" : "open";
+    const { internalApiSecret: _, ...caseInput } = args;
     const caseId = await ctx.db.insert("cases", {
-      ...args,
+      ...caseInput,
       channel: "telegram",
       status,
       plan: [],

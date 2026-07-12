@@ -56,10 +56,19 @@ def create_app(
 
 def configured_app(settings: Settings | None = None) -> FastAPI:
     current = settings or Settings()
-    if current.app_env in {"staging", "production"} and not current.convex_url:
-        raise RuntimeError("CONVEX_URL is required outside development and test")
+    if current.app_env in {"staging", "production"} and (
+        not current.convex_url or not current.internal_api_secret
+    ):
+        raise RuntimeError(
+            "CONVEX_URL and INTERNAL_API_SECRET are required outside development and test"
+        )
     store: CaseStore = (
-        ConvexCaseStore(current.convex_url) if current.convex_url else InMemoryCaseStore()
+        ConvexCaseStore(
+            current.convex_url,
+            internal_api_secret=current.internal_api_secret,
+        )
+        if current.convex_url
+        else InMemoryCaseStore()
     )
     return create_app(current.telegram_webhook_secret, store)
 

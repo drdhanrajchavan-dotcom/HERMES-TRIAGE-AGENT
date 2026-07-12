@@ -21,7 +21,11 @@ def test_convex_case_store_sends_canonical_mutation() -> None:
         )
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
-    store = ConvexCaseStore("https://example.convex.cloud", client=client)
+    store = ConvexCaseStore(
+        "https://example.convex.cloud",
+        internal_api_secret="internal-secret",
+        client=client,
+    )
 
     created = store.add(sample_case())
 
@@ -31,6 +35,7 @@ def test_convex_case_store_sends_canonical_mutation() -> None:
     assert captured["args"]["externalEventId"] == "telegram:101"
     assert captured["args"]["patientExternalId"] == "telegram:99"
     assert captured["args"]["mustEscalate"] is False
+    assert captured["args"]["internalApiSecret"] == "internal-secret"
 
 
 def test_convex_case_store_reports_duplicate() -> None:
@@ -42,6 +47,7 @@ def test_convex_case_store_reports_duplicate() -> None:
 
     store = ConvexCaseStore(
         "https://example.convex.cloud",
+        internal_api_secret="internal-secret",
         client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
