@@ -50,6 +50,7 @@ export default defineSchema({
     message: v.string(),
     mustEscalate: v.boolean(),
     redFlags: v.array(v.string()),
+    langfuseTraceId: v.optional(v.string()),
     plan: v.array(
       v.union(
         v.string(),

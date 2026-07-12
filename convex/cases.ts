@@ -24,11 +24,7 @@ export const ingestTelegram = mutation({
     if (existing) return { caseId: existing._id, duplicate: true };
 
     const status = args.mustEscalate ? "escalated" : "open";
-    const {
-      internalApiSecret: _,
-      langfuseTraceId: __,
-      ...caseInput
-    } = args;
+    const { internalApiSecret: _, ...caseInput } = args;
     const caseId = await ctx.db.insert("cases", {
       ...caseInput,
       channel: "telegram",

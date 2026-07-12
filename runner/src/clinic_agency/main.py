@@ -3,7 +3,7 @@ from secrets import compare_digest
 from typing import Annotated, Any, Protocol
 
 from fastapi import FastAPI, Header, HTTPException, Response, status
-from langfuse import get_client
+from langfuse import get_client, observe
 
 from clinic_agency.adapters.case_store import InMemoryCaseStore
 from clinic_agency.adapters.convex import ConvexCaseStore
@@ -55,6 +55,12 @@ def create_app(
         return {"service": "clinic-agency-runner", "status": "ready"}
 
     @application.post("/webhooks/telegram")
+    @observe(
+        name="case.telegram",
+        as_type="chain",
+        capture_input=False,
+        capture_output=False,
+    )
     def telegram_webhook(
         payload: dict[str, Any],
         response: Response,
@@ -74,6 +80,22 @@ def create_app(
             update.message.chat.id,
             update.message.text,
             safety.matched_terms,
+        )
+        get_client().update_current_trace(
+            session_id=case.external_event_id,
+            metadata={
+                "case_id": case.external_event_id,
+                "role": "Manager",
+                "task_type": "telegram_case",
+            },
+            tags=["telegram", "red_flag" if case.must_escalate else "routine"],
+        )
+        get_client().update_current_span(
+            input={
+                "case_id": case.external_event_id,
+                "channel": case.channel,
+                "must_escalate": case.must_escalate,
+            }
         )
         if not application.state.case_store.add(case):
             return {"status": "duplicate", "update_id": update.update_id}

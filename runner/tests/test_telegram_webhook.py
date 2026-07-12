@@ -44,6 +44,17 @@ def test_telegram_webhook_rejects_invalid_secret() -> None:
     assert response.status_code == 401
 
 
+def test_telegram_webhook_is_a_single_observed_case_root() -> None:
+    app = create_app(telegram_webhook_secret="correct-secret")
+    endpoint = next(
+        route.endpoint
+        for route in app.routes
+        if getattr(route, "path", None) == "/webhooks/telegram"
+    )
+
+    assert hasattr(endpoint, "__wrapped__")
+
+
 def test_telegram_webhook_requires_configured_edge_secret() -> None:
     client = TestClient(
         create_app(
