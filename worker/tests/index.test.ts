@@ -18,6 +18,23 @@ describe("clinic agency edge", () => {
     expect(html).toContain("Use synthetic data only");
   });
 
+  it("expires calendar holds from the scheduled edge boundary", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ expired_hold_keys: [] }),
+    );
+
+    await worker.scheduled({} as ScheduledController, env, {} as ExecutionContext);
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://runner.example/internal/calendar/expire",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "X-Clinic-Edge-Secret": "edge-secret" }),
+      }),
+    );
+    fetchSpy.mockRestore();
+  });
+
   it("forwards the public root to the runner status endpoint", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       Response.json({ service: "clinic-agency-runner", status: "ready" }),

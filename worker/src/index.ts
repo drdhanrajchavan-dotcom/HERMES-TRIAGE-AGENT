@@ -45,6 +45,25 @@ function judgeQuickstart(): Response {
 }
 
 export default {
+  async scheduled(
+    _controller: ScheduledController,
+    env: Env,
+    _ctx: ExecutionContext,
+  ): Promise<void> {
+    const response = await fetch(
+      `${env.RUNNER_ORIGIN.replace(/\/$/, "")}/internal/calendar/expire`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Clinic-Edge-Secret": env.WEBHOOK_SHARED_SECRET,
+        },
+        body: JSON.stringify({ limit: 100 }),
+      },
+    );
+    if (!response.ok) throw new Error(`Calendar expiry failed with HTTP ${response.status}`);
+  },
+
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/judge" && request.method === "GET") {
