@@ -1,0 +1,14 @@
+{
+  "name": "clinic-agency",
+  "private": true,
+  "scripts": {
+    "convex:dev": "convex dev",
+    "convex:check": "convex dev --once --typecheck=enable"
+  },
+  "dependencies": {
+    "convex": "^1.27.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}

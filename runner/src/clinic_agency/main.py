@@ -1,17 +1,26 @@
 from secrets import compare_digest
-from typing import Annotated, Any
+from typing import Annotated, Any, Protocol
 
 from fastapi import FastAPI, Header, HTTPException, Response, status
 
 from clinic_agency.adapters.case_store import InMemoryCaseStore
+from clinic_agency.adapters.convex import ConvexCaseStore
 from clinic_agency.adapters.telegram import extract_update
+from clinic_agency.config import Settings
 from clinic_agency.domain.cases import Case
 from clinic_agency.safety.red_flags import classify_red_flags
 
 
-def create_app(telegram_webhook_secret: str = "") -> FastAPI:
+class CaseStore(Protocol):
+    def add(self, case: Case) -> bool: ...
+
+
+def create_app(
+    telegram_webhook_secret: str = "",
+    case_store: CaseStore | None = None,
+) -> FastAPI:
     application = FastAPI(title="Clinic Agency Runner")
-    application.state.case_store = InMemoryCaseStore()
+    application.state.case_store = case_store or InMemoryCaseStore()
 
     @application.get("/health")
     def health() -> dict[str, str]:
@@ -45,4 +54,14 @@ def create_app(telegram_webhook_secret: str = "") -> FastAPI:
     return application
 
 
-app = create_app()
+def configured_app(settings: Settings | None = None) -> FastAPI:
+    current = settings or Settings()
+    if current.app_env in {"staging", "production"} and not current.convex_url:
+        raise RuntimeError("CONVEX_URL is required outside development and test")
+    store: CaseStore = (
+        ConvexCaseStore(current.convex_url) if current.convex_url else InMemoryCaseStore()
+    )
+    return create_app(current.telegram_webhook_secret, store)
+
+
+app = configured_app()
