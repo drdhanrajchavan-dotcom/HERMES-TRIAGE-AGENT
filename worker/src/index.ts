@@ -31,9 +31,25 @@ function json(status: number, body: object): Response {
   });
 }
 
+function judgeQuickstart(): Response {
+  const body = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hermes Clinic Agent · Judge Quickstart</title><style>body{margin:0;background:#07111f;color:#e8f0fa;font:16px system-ui;line-height:1.55}main{max-width:760px;margin:auto;padding:64px 24px}h1{font-size:clamp(2.2rem,7vw,4.6rem);line-height:1;margin:.3em 0}.tag{color:#78d8c8;text-transform:uppercase;letter-spacing:.14em}.cta{display:inline-block;margin:24px 0;padding:14px 22px;border-radius:10px;background:#78d8c8;color:#07111f;text-decoration:none;font-weight:750}.card{background:#101d2e;border:1px solid #253851;border-radius:14px;padding:20px;margin:18px 0}small{color:#9fb0c5}</style><main><p class="tag">Hackathon judge quickstart</p><h1>Hermes clinic coordination agent</h1><p>Test safety-aware clinic intake, cited ClearSkin/HairMD information, escalation, and tentative appointment workflows in Telegram.</p><a class="cta" href="https://t.me/hermestriagent_bot">Open the Telegram agent</a><section class="card"><h2>Suggested synthetic prompts</h2><ol><li>What treatments does ClearSkin offer for acne scars?</li><li>I want a tentative appointment next Tuesday afternoon.</li><li>Synthetic test: I have difficulty breathing after a procedure.</li><li>Can you guarantee this will permanently cure hair loss?</li></ol></section><p><strong>Use synthetic data only.</strong> Do not enter real patient names, phone numbers, records, or images.</p><small>Deterministic red flags run before model reasoning. Outbound text passes deterministic compliance and exact-draft authorization.</small></main></html>`;
+  return new Response(body, {
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "public, max-age=300",
+      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer",
+    },
+  });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === "/judge" && request.method === "GET") {
+      return judgeQuickstart();
+    }
     if ((url.pathname === "/" || url.pathname === "/health") && request.method === "GET") {
       return fetch(`${env.RUNNER_ORIGIN.replace(/\/$/, "")}${url.pathname}`, {
         headers: { Accept: "application/json" },

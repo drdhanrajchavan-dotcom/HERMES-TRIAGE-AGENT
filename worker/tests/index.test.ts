@@ -8,6 +8,16 @@ const env = {
 };
 
 describe("clinic agency edge", () => {
+  it("serves a judge quickstart with the public Telegram agent link", async () => {
+    const response = await worker.fetch(new Request("https://edge.example/judge"), env);
+    const html = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toContain("text/html");
+    expect(html).toContain("https://t.me/hermestriagent_bot");
+    expect(html).toContain("Use synthetic data only");
+  });
+
   it("forwards the public root to the runner status endpoint", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       Response.json({ service: "clinic-agency-runner", status: "ready" }),
