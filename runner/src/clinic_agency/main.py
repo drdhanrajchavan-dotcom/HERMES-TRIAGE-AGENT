@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
 from secrets import compare_digest
@@ -11,6 +12,7 @@ from clinic_agency.adapters.case_store import InMemoryCaseStore
 from clinic_agency.adapters.convex import ConvexCaseStore
 from clinic_agency.adapters.telegram import extract_update
 from clinic_agency.adapters.telegram_sender import TelegramSender
+from clinic_agency.adapters.voice import ElevenLabsVoiceAdapter, TelegramVoiceNoteDownloader
 from clinic_agency.calendar.convex import ConvexHoldStore
 from clinic_agency.calendar.google import GoogleCalendarClient
 from clinic_agency.calendar.service import CalendarService
@@ -66,6 +68,7 @@ def create_app(
     verify_langfuse: bool = False,
     webhook_shared_secret: str = "",
     calendar_service: CalendarService | object | None = None,
+    voice_transcriber: Callable[[str], str] | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -79,6 +82,7 @@ def create_app(
     application.state.case_store = case_store or InMemoryCaseStore()
     application.state.calendar_service = calendar_service
     application.state.outbound_workflow = outbound_workflow
+    application.state.voice_transcriber = voice_transcriber
 
     def require_edge(edge_secret: str | None) -> None:
         if not webhook_shared_secret:
@@ -168,11 +172,16 @@ def create_app(
         if not secret or not compare_digest(secret, telegram_webhook_secret):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
         update = extract_update(payload)
-        safety = classify_red_flags(update.message.text)
+        message_text = update.message.text
+        if message_text is None:
+            if update.message.voice is None or voice_transcriber is None:
+                raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+            message_text = voice_transcriber(update.message.voice.file_id)
+        safety = classify_red_flags(message_text)
         case = Case.from_telegram(
             update.update_id,
             update.message.chat.id,
-            update.message.text,
+            message_text,
             safety.matched_terms,
         )
         get_client().update_current_trace(
@@ -251,6 +260,31 @@ def configured_app(settings: Settings | None = None) -> FastAPI:
         )
 
     workflow = None
+    voice_transcriber = None
+    if current.voice_enabled:
+        voice_adapter = ElevenLabsVoiceAdapter(
+            current.elevenlabs_api_key,
+            current.elevenlabs_voice_id,
+            stt_model_id=current.elevenlabs_stt_model_id,
+            tts_model_id=current.elevenlabs_tts_model_id,
+            output_format=current.elevenlabs_output_format,
+            agent_id=current.elevenlabs_agent_id,
+            max_audio_bytes=current.voice_max_audio_bytes,
+        )
+        voice_downloader = TelegramVoiceNoteDownloader(
+            current.telegram_bot_token,
+            max_audio_bytes=current.voice_max_audio_bytes,
+        )
+
+        def transcribe_voice(file_id: str) -> str:
+            note = voice_downloader.download(file_id)
+            return voice_adapter.transcribe(
+                note.audio,
+                filename=note.filename,
+                content_type=note.content_type,
+            )
+
+        voice_transcriber = transcribe_voice
     live_reply_configured = all(
         (
             current.convex_url,
@@ -305,6 +339,7 @@ def configured_app(settings: Settings | None = None) -> FastAPI:
         verify_langfuse=bool(current.langfuse_public_key and current.langfuse_secret_key),
         webhook_shared_secret=current.webhook_shared_secret,
         calendar_service=calendar_service,
+        voice_transcriber=voice_transcriber,
     )
 
 

@@ -133,6 +133,34 @@ def test_telegram_webhook_runs_safe_outbound_workflow_once() -> None:
     assert workflow.calls[0][1] == 99
 
 
+def test_telegram_voice_note_is_transcribed_before_safety_and_agent_workflow() -> None:
+    workflow = RecordingWorkflow()
+    transcribed_file_ids: list[str] = []
+
+    def transcribe(file_id: str) -> str:
+        transcribed_file_ids.append(file_id)
+        return "I would like an acne consultation next Tuesday"
+
+    app = create_app(
+        telegram_webhook_secret="correct-secret",
+        outbound_workflow=workflow,
+        voice_transcriber=transcribe,
+    )
+    payload = telegram_update()
+    payload["message"].pop("text")
+    payload["message"]["voice"] = {"file_id": "voice-file-1", "file_size": 2048}
+
+    response = TestClient(app).post(
+        "/webhooks/telegram",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "correct-secret"},
+        json=payload,
+    )
+
+    assert response.status_code == 202
+    assert transcribed_file_ids == ["voice-file-1"]
+    assert workflow.calls[0][0].message == "I would like an acne consultation next Tuesday"
+
+
 def test_telegram_webhook_records_case_specific_manager_plan() -> None:
     plans = RecordingPlanStore()
     app = create_app(
