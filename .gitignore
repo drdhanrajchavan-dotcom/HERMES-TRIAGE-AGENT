@@ -17,6 +17,9 @@ dist/
 .vite/
 playwright-report/
 test-results/
+*.tsbuildinfo
+console/vite.config.js
+console/vite.config.d.ts
 
 # Convex
 .convex/
