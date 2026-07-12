@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     model_base_url: str = ""
     model_timeout_seconds: float = 30.0
     model_max_retries: int = 0
+    telegram_reply_model: str = ""
+    telegram_reply_prompt_name: str = "roles/telegram-reply"
+    telegram_reply_prompt_label: str = "production"
+    telegram_reply_max_cost_usd: float = 0.25
+    telegram_reply_input_price_per_million: float = 1.0
+    telegram_reply_output_price_per_million: float = 4.0
 
 
 def create_openai_client(settings: Settings) -> OpenAI:

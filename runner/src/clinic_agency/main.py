@@ -15,16 +15,20 @@ from clinic_agency.calendar.convex import ConvexHoldStore
 from clinic_agency.calendar.google import GoogleCalendarClient
 from clinic_agency.calendar.service import CalendarService
 from clinic_agency.calendar.service import HoldRequest as CalendarHoldRequest
-from clinic_agency.config import Settings
+from clinic_agency.config import Settings, create_openai_client
 from clinic_agency.domain.cases import Case
+from clinic_agency.domain.roles import Autonomy, PromptRef, RoleConfig
 from clinic_agency.knowledge.linkup import LinkupSearchClient
-from clinic_agency.knowledge.responder import CitedKnowledgeResponder
 from clinic_agency.knowledge.service import GroundedKnowledgeService
-from clinic_agency.orchestration.acknowledgement import (
-    SafeAcknowledgementWorkflow,
-    WorkflowResult,
-)
+from clinic_agency.orchestration.acknowledgement import WorkflowResult
+from clinic_agency.orchestration.openai_model import OpenAIStructuredModel
 from clinic_agency.orchestration.planner import CasePlan, ManagerPlanner
+from clinic_agency.orchestration.role_runner import HostedRoleExecutor, RoleRunner
+from clinic_agency.orchestration.telegram_reply import (
+    IntelligentTelegramReplyWorkflow,
+    TelegramReplyOutput,
+    calendar_tool_registry,
+)
 from clinic_agency.safety.red_flags import classify_red_flags
 
 
@@ -74,6 +78,7 @@ def create_app(
     application = FastAPI(title="Clinic Agency Runner", lifespan=lifespan)
     application.state.case_store = case_store or InMemoryCaseStore()
     application.state.calendar_service = calendar_service
+    application.state.outbound_workflow = outbound_workflow
 
     def require_edge(edge_secret: str | None) -> None:
         if not webhook_shared_secret:
@@ -218,6 +223,9 @@ def configured_app(settings: Settings | None = None) -> FastAPI:
             "WEBHOOK_SHARED_SECRET": current.webhook_shared_secret,
             "LINKUP_API_KEY": current.linkup_api_key,
             "GOOGLE_CALENDAR_ID": current.google_calendar_id,
+            "MODEL_API_KEY": current.model_api_key,
+            "MODEL_BASE_URL": current.model_base_url,
+            "TELEGRAM_REPLY_MODEL": current.telegram_reply_model,
         }
         missing = [name for name, value in required.items() if not value]
         if missing:
@@ -230,23 +238,9 @@ def configured_app(settings: Settings | None = None) -> FastAPI:
         if current.convex_url
         else InMemoryCaseStore()
     )
-    workflow = None
-    if isinstance(store, ConvexCaseStore) and current.telegram_bot_token:
-        knowledge_responder = (
-            CitedKnowledgeResponder(
-                GroundedKnowledgeService(LinkupSearchClient(current.linkup_api_key))
-            )
-            if current.linkup_api_key
-            else None
-        )
-        workflow = SafeAcknowledgementWorkflow(
-            sender=TelegramSender(current.telegram_bot_token),
-            recorder=store,
-            knowledge_responder=knowledge_responder,
-        )
-    plan_recorder = store if isinstance(store, ConvexCaseStore) else None
+    plan_recorder = store if current.convex_url else None
     calendar_service = None
-    if isinstance(store, ConvexCaseStore) and current.google_calendar_id:
+    if current.convex_url and current.google_calendar_id:
         calendar_service = CalendarService(
             GoogleCalendarClient(current.google_calendar_id),
             ConvexHoldStore(
@@ -254,6 +248,54 @@ def configured_app(settings: Settings | None = None) -> FastAPI:
                 internal_api_secret=current.internal_api_secret,
             ),
             hold_minutes=current.google_calendar_hold_minutes,
+        )
+
+    workflow = None
+    live_reply_configured = all(
+        (
+            current.convex_url,
+            current.telegram_bot_token,
+            current.linkup_api_key,
+            current.model_api_key,
+            current.model_base_url,
+            current.telegram_reply_model,
+            calendar_service,
+        )
+    )
+    if live_reply_configured:
+        role = RoleConfig(
+            name="TelegramReply",
+            mission="Draft a safe, evidence-grounded clinic reply and assist with booking.",
+            prompt_ref=PromptRef(
+                name=current.telegram_reply_prompt_name,
+                label=current.telegram_reply_prompt_label,
+            ),
+            model=current.telegram_reply_model,
+            tools=("calendar.read", "calendar.hold"),
+            autonomy=Autonomy.AUTO,
+            max_cost_usd=current.telegram_reply_max_cost_usd,
+        )
+        model = OpenAIStructuredModel(
+            client=create_openai_client(current),
+            pricing={
+                current.telegram_reply_model: (
+                    current.telegram_reply_input_price_per_million,
+                    current.telegram_reply_output_price_per_million,
+                )
+            },
+            tool_registry=calendar_tool_registry(calendar_service),
+        )
+        executor = HostedRoleExecutor(
+            langfuse=get_client(),
+            model=model,
+            output_schemas={"telegram_reply": TelegramReplyOutput},
+        )
+        workflow = IntelligentTelegramReplyWorkflow(
+            sender=TelegramSender(current.telegram_bot_token),
+            recorder=store,
+            role_runner=RoleRunner(executor),
+            role=role,
+            knowledge=GroundedKnowledgeService(LinkupSearchClient(current.linkup_api_key)),
         )
     return create_app(
         current.telegram_webhook_secret,
