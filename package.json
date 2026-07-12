@@ -3,13 +3,16 @@
   "private": true,
   "scripts": {
     "convex:dev": "convex dev",
-    "convex:check": "convex dev --once --typecheck=enable"
+    "convex:check": "convex dev --once --typecheck=enable",
+    "test": "vitest run convex/*.test.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "convex": "^1.27.0"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.10"
   }
 }

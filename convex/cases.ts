@@ -1,5 +1,10 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { assertOperatorIdentity } from "./operationsCore";
+
+async function authorizeOperator(ctx: { auth: { getUserIdentity(): Promise<any> } }) {
+  return assertOperatorIdentity(await ctx.auth.getUserIdentity());
+}
 
 export const ingestTelegram = mutation({
   args: {
@@ -165,6 +170,7 @@ export const recordApprovedDelivery = mutation({
 export const listCaseSteps = query({
   args: { externalEventId: v.string() },
   handler: async (ctx, { externalEventId }) => {
+    await authorizeOperator(ctx);
     const caseRecord = await ctx.db
       .query("cases")
       .withIndex("by_external_event", (q) => q.eq("externalEventId", externalEventId))
@@ -180,7 +186,17 @@ export const listCaseSteps = query({
 export const listRecent = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, { limit = 50 }) => {
+    await authorizeOperator(ctx);
     const safeLimit = Math.min(Math.max(limit, 1), 100);
-    return await ctx.db.query("cases").order("desc").take(safeLimit);
+    const records = await ctx.db.query("cases").order("desc").take(safeLimit);
+    return records.map(record => ({
+      id: record._id,
+      status: record.status,
+      patientLabel: `Patient …${record.patientExternalId.slice(-4)}`,
+      openedAt: record.openedAt,
+      closedAt: record.closedAt,
+      mustEscalate: record.mustEscalate,
+      langfuseTraceId: record.langfuseTraceId,
+    }));
   },
 });

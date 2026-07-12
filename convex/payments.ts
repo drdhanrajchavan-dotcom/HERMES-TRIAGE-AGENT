@@ -96,10 +96,12 @@ export const markCheckoutUncertain = mutation({
 });
 
 export const getByHoldKey = query({
-  args: { holdKey: v.string() },
-  handler: async (ctx, { holdKey }) =>
-    await ctx.db
+  args: { internalApiSecret: v.string(), holdKey: v.string() },
+  handler: async (ctx, { internalApiSecret, holdKey }) => {
+    authorize(internalApiSecret);
+    return await ctx.db
       .query("bookingHolds")
       .withIndex("by_hold_key", (q) => q.eq("holdKey", holdKey))
-      .unique(),
+      .unique();
+  },
 });
