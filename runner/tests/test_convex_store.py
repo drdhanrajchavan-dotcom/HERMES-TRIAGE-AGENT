@@ -4,6 +4,7 @@ import httpx
 
 from clinic_agency.adapters.convex import ConvexCaseStore
 from clinic_agency.domain.cases import Case
+from clinic_agency.safety.outbound import ComplianceReview, OutboundDraft, OutboundGate
 
 
 def sample_case() -> Case:
@@ -52,3 +53,33 @@ def test_convex_case_store_reports_duplicate() -> None:
     )
 
     assert store.add(sample_case()) is False
+
+
+def test_convex_case_store_records_approved_delivery() -> None:
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json={"status": "success", "value": {"recorded": True}})
+
+    store = ConvexCaseStore(
+        "https://example.convex.cloud",
+        internal_api_secret="internal-secret",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    draft = OutboundDraft.create("case-1", "Would you like available slots?")
+    review = ComplianceReview.pass_draft(draft)
+    outbound = OutboundGate.authorize(draft, review)
+
+    store.record_delivery(
+        external_event_id="telegram:101",
+        outbound=outbound,
+        review=review,
+        external_message_id="42",
+    )
+
+    assert captured["path"] == "cases:recordApprovedDelivery"
+    assert captured["args"]["externalEventId"] == "telegram:101"
+    assert captured["args"]["draftHash"] == draft.draft_hash
+    assert captured["args"]["reviewDraftHash"] == draft.draft_hash
+    assert captured["args"]["externalMessageId"] == "42"

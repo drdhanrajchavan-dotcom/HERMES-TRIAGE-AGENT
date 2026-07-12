@@ -106,7 +106,9 @@ export default defineSchema({
     ),
     externalMessageId: v.optional(v.string()),
     createdAt: v.number(),
-  }).index("by_case_created", ["caseId", "createdAt"]),
+  })
+    .index("by_case_created", ["caseId", "createdAt"])
+    .index("by_external_message", ["externalMessageId"]),
 
   reviews: defineTable({
     caseId: v.id("cases"),
