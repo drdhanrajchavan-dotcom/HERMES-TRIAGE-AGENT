@@ -34,6 +34,16 @@ class RecordingStore:
         )
 
 
+class KnowledgeResponder:
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.questions: list[str] = []
+
+    def answer(self, question: str) -> str:
+        self.questions.append(question)
+        return self.text
+
+
 def test_workflow_sends_and_records_reviewed_routine_acknowledgement() -> None:
     case = Case.from_telegram(101, 99, "How much is laser treatment?")
     sender = RecordingSender()
@@ -60,3 +70,35 @@ def test_workflow_uses_urgent_non_diagnostic_red_flag_acknowledgement() -> None:
     assert "review this promptly" in text
     assert "emergency services" in text
     assert "diagnos" not in text
+
+
+def test_workflow_sends_compliant_cited_knowledge_answer() -> None:
+    case = Case.from_telegram(103, 99, "What acne treatment is available?")
+    sender = RecordingSender()
+    responder = KnowledgeResponder(
+        "ClearSkin offers clinician-assessed acne care.\n\n"
+        "Source: https://clearskin.in/acne/\n\n"
+        "A clinician can advise what is appropriate for you."
+    )
+
+    SafeAcknowledgementWorkflow(
+        sender=sender,
+        recorder=RecordingStore(),
+        knowledge_responder=responder,
+    ).handle(case, chat_id=99)
+
+    assert responder.questions == [case.message]
+    assert "https://clearskin.in/acne/" in sender.sent[0][1].text
+
+
+def test_workflow_falls_back_when_grounded_copy_fails_compliance() -> None:
+    case = Case.from_telegram(104, 99, "Can acne be treated?")
+    sender = RecordingSender()
+
+    SafeAcknowledgementWorkflow(
+        sender=sender,
+        recorder=RecordingStore(),
+        knowledge_responder=KnowledgeResponder("We guarantee a cure."),
+    ).handle(case, chat_id=99)
+
+    assert "received your message" in sender.sent[0][1].text.lower()

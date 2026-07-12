@@ -11,6 +11,9 @@ from clinic_agency.adapters.telegram import extract_update
 from clinic_agency.adapters.telegram_sender import TelegramSender
 from clinic_agency.config import Settings
 from clinic_agency.domain.cases import Case
+from clinic_agency.knowledge.linkup import LinkupSearchClient
+from clinic_agency.knowledge.responder import CitedKnowledgeResponder
+from clinic_agency.knowledge.service import GroundedKnowledgeService
 from clinic_agency.orchestration.acknowledgement import (
     SafeAcknowledgementWorkflow,
     WorkflowResult,
@@ -127,6 +130,7 @@ def configured_app(settings: Settings | None = None) -> FastAPI:
             "TELEGRAM_BOT_TOKEN": current.telegram_bot_token,
             "TELEGRAM_WEBHOOK_SECRET": current.telegram_webhook_secret,
             "WEBHOOK_SHARED_SECRET": current.webhook_shared_secret,
+            "LINKUP_API_KEY": current.linkup_api_key,
         }
         missing = [name for name, value in required.items() if not value]
         if missing:
@@ -141,9 +145,17 @@ def configured_app(settings: Settings | None = None) -> FastAPI:
     )
     workflow = None
     if isinstance(store, ConvexCaseStore) and current.telegram_bot_token:
+        knowledge_responder = (
+            CitedKnowledgeResponder(
+                GroundedKnowledgeService(LinkupSearchClient(current.linkup_api_key))
+            )
+            if current.linkup_api_key
+            else None
+        )
         workflow = SafeAcknowledgementWorkflow(
             sender=TelegramSender(current.telegram_bot_token),
             recorder=store,
+            knowledge_responder=knowledge_responder,
         )
     plan_recorder = store if isinstance(store, ConvexCaseStore) else None
     return create_app(

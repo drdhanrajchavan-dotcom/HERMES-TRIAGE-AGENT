@@ -39,6 +39,10 @@ class DeliveryRecorder(Protocol):
     ) -> None: ...
 
 
+class KnowledgeResponder(Protocol):
+    def answer(self, question: str) -> str: ...
+
+
 @dataclass(frozen=True)
 class WorkflowResult:
     sent: bool
@@ -47,9 +51,16 @@ class WorkflowResult:
 
 
 class SafeAcknowledgementWorkflow:
-    def __init__(self, *, sender: OutboundSender, recorder: DeliveryRecorder) -> None:
+    def __init__(
+        self,
+        *,
+        sender: OutboundSender,
+        recorder: DeliveryRecorder,
+        knowledge_responder: KnowledgeResponder | None = None,
+    ) -> None:
         self._sender = sender
         self._recorder = recorder
+        self._knowledge_responder = knowledge_responder
 
     @observe(name="workflow.safe_acknowledgement", as_type="chain", capture_input=False)
     def handle(self, case: Case, chat_id: int) -> WorkflowResult:
@@ -65,6 +76,20 @@ class SafeAcknowledgementWorkflow:
         )
         get_client().update_current_span(metadata=metadata)
         text = RED_FLAG_ACKNOWLEDGEMENT if case.must_escalate else ROUTINE_ACKNOWLEDGEMENT
+        if not case.must_escalate and self._knowledge_responder:
+            grounded_text = self._knowledge_responder.answer(case.message)
+            grounded_draft = OutboundDraft.create(case.external_event_id, grounded_text)
+            grounded_review = review_draft(grounded_draft)
+            if grounded_review.verdict == "pass":
+                text = grounded_text
+            else:
+                get_client().update_current_span(
+                    metadata={
+                        **metadata,
+                        "compliance_bounced": True,
+                        "violations": list(grounded_review.violations),
+                    }
+                )
         draft = OutboundDraft.create(case.external_event_id, text)
         review = review_draft(draft)
         outbound = OutboundGate.authorize(draft, review)
