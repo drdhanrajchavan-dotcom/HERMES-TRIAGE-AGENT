@@ -13,6 +13,7 @@ from clinic_agency.orchestration.acknowledgement import (
     SafeAcknowledgementWorkflow,
     WorkflowResult,
 )
+from clinic_agency.orchestration.planner import CasePlan, ManagerPlanner
 from clinic_agency.safety.red_flags import classify_red_flags
 
 
@@ -24,10 +25,15 @@ class OutboundWorkflow(Protocol):
     def handle(self, case: Case, chat_id: int) -> WorkflowResult: ...
 
 
+class PlanRecorder(Protocol):
+    def record_plan(self, external_event_id: str, plan: CasePlan) -> None: ...
+
+
 def create_app(
     telegram_webhook_secret: str = "",
     case_store: CaseStore | None = None,
     outbound_workflow: OutboundWorkflow | None = None,
+    plan_recorder: PlanRecorder | None = None,
 ) -> FastAPI:
     application = FastAPI(title="Clinic Agency Runner")
     application.state.case_store = case_store or InMemoryCaseStore()
@@ -54,6 +60,8 @@ def create_app(
         )
         if not application.state.case_store.add(case):
             return {"status": "duplicate", "update_id": update.update_id}
+        if plan_recorder:
+            plan_recorder.record_plan(case.external_event_id, ManagerPlanner().plan(case))
         outbound_sent = False
         if outbound_workflow:
             outbound_sent = outbound_workflow.handle(case, update.message.chat.id).sent
@@ -90,7 +98,8 @@ def configured_app(settings: Settings | None = None) -> FastAPI:
             sender=TelegramSender(current.telegram_bot_token),
             recorder=store,
         )
-    return create_app(current.telegram_webhook_secret, store, workflow)
+    plan_recorder = store if isinstance(store, ConvexCaseStore) else None
+    return create_app(current.telegram_webhook_secret, store, workflow, plan_recorder)
 
 
 app = configured_app()

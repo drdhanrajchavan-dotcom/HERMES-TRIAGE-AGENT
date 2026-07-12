@@ -12,6 +12,14 @@ class RecordingWorkflow:
         return type("Result", (), {"sent": True})()
 
 
+class RecordingPlanStore:
+    def __init__(self) -> None:
+        self.plans: list[tuple[str, object]] = []
+
+    def record_plan(self, external_event_id: str, plan) -> None:
+        self.plans.append((external_event_id, plan))
+
+
 def telegram_update(update_id: int = 101, text: str = "How much is laser treatment?") -> dict:
     return {
         "update_id": update_id,
@@ -86,3 +94,29 @@ def test_telegram_webhook_runs_safe_outbound_workflow_once() -> None:
     assert replay.json()["status"] == "duplicate"
     assert len(workflow.calls) == 1
     assert workflow.calls[0][1] == 99
+
+
+def test_telegram_webhook_records_case_specific_manager_plan() -> None:
+    plans = RecordingPlanStore()
+    app = create_app(
+        telegram_webhook_secret="correct-secret",
+        plan_recorder=plans,
+    )
+
+    response = TestClient(app).post(
+        "/webhooks/telegram",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "correct-secret"},
+        json=telegram_update(text="What is the price and can I come Saturday?"),
+    )
+
+    assert response.status_code == 202
+    assert len(plans.plans) == 1
+    event_id, plan = plans.plans[0]
+    assert event_id == "telegram:101"
+    assert [step.key for step in plan.steps] == [
+        "triage",
+        "knowledge",
+        "booking",
+        "draft",
+        "compliance",
+    ]

@@ -62,6 +62,41 @@ export const ingestTelegram = mutation({
   },
 });
 
+export const recordPlan = mutation({
+  args: {
+    internalApiSecret: v.string(),
+    externalEventId: v.string(),
+    steps: v.array(
+      v.object({
+        key: v.string(),
+        role: v.string(),
+        dependsOn: v.array(v.string()),
+      }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const expectedSecret = process.env.INTERNAL_API_SECRET;
+    if (!expectedSecret || args.internalApiSecret !== expectedSecret) {
+      throw new Error("Unauthorized ingestion request");
+    }
+    const caseRecord = await ctx.db
+      .query("cases")
+      .withIndex("by_external_event", (q) => q.eq("externalEventId", args.externalEventId))
+      .unique();
+    if (!caseRecord) throw new Error("Case not found for manager plan");
+    await ctx.db.patch(caseRecord._id, { plan: args.steps });
+    await ctx.db.insert("steps", {
+      caseId: caseRecord._id,
+      taskKey: "manager.plan",
+      inputDigest: args.externalEventId,
+      outputDigest: args.steps.map((step) => step.key).join(","),
+      status: "ok",
+      createdAt: Date.now(),
+    });
+    return { recorded: true };
+  },
+});
+
 export const recordApprovedDelivery = mutation({
   args: {
     internalApiSecret: v.string(),

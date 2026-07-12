@@ -4,6 +4,7 @@ import httpx
 
 from clinic_agency.adapters.convex import ConvexCaseStore
 from clinic_agency.domain.cases import Case
+from clinic_agency.orchestration.planner import ManagerPlanner
 from clinic_agency.safety.outbound import ComplianceReview, OutboundDraft, OutboundGate
 
 
@@ -83,3 +84,30 @@ def test_convex_case_store_records_approved_delivery() -> None:
     assert captured["args"]["draftHash"] == draft.draft_hash
     assert captured["args"]["reviewDraftHash"] == draft.draft_hash
     assert captured["args"]["externalMessageId"] == "42"
+
+
+def test_convex_case_store_records_manager_plan() -> None:
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json={"status": "success", "value": {"recorded": True}})
+
+    store = ConvexCaseStore(
+        "https://example.convex.cloud",
+        internal_api_secret="internal-secret",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    case = sample_case()
+    plan = ManagerPlanner().plan(case)
+
+    store.record_plan(case.external_event_id, plan)
+
+    assert captured["path"] == "cases:recordPlan"
+    assert captured["args"]["externalEventId"] == "telegram:101"
+    assert [step["key"] for step in captured["args"]["steps"]] == [
+        "triage",
+        "knowledge",
+        "draft",
+        "compliance",
+    ]

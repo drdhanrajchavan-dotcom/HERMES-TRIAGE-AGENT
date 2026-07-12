@@ -58,7 +58,16 @@ export default defineSchema({
     message: v.string(),
     mustEscalate: v.boolean(),
     redFlags: v.array(v.string()),
-    plan: v.array(v.string()),
+    plan: v.array(
+      v.union(
+        v.string(),
+        v.object({
+          key: v.string(),
+          role: v.string(),
+          dependsOn: v.array(v.string()),
+        }),
+      ),
+    ),
     openedAt: v.number(),
     closedAt: v.optional(v.number()),
   })

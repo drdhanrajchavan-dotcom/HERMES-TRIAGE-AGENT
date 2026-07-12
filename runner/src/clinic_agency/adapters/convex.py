@@ -3,6 +3,7 @@ from typing import Any
 import httpx
 
 from clinic_agency.domain.cases import Case
+from clinic_agency.orchestration.planner import CasePlan
 from clinic_agency.safety.outbound import AuthorizedOutbound, ComplianceReview
 
 
@@ -41,6 +42,23 @@ class ConvexCaseStore:
                 "reviewDraftHash": review.draft_hash,
                 "violations": list(review.violations),
                 "externalMessageId": external_message_id,
+            },
+        )
+
+    def record_plan(self, external_event_id: str, plan: CasePlan) -> None:
+        self._mutate(
+            "cases:recordPlan",
+            {
+                "internalApiSecret": self._internal_api_secret,
+                "externalEventId": external_event_id,
+                "steps": [
+                    {
+                        "key": step.key,
+                        "role": step.role,
+                        "dependsOn": list(step.depends_on),
+                    }
+                    for step in plan.steps
+                ],
             },
         )
 
